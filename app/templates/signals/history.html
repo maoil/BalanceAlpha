@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}信号历史{% endblock %}
+{% block page_title %}<h6 class="mb-0"><i class="bi bi-clock-history"></i> 信号历史</h6>{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h4>信号历史</h4>
+    <a href="{{ url_for('signals.list_signals') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> 返回当前信号
+    </a>
+</div>
+
+<div class="card">
+    <div class="card-body p-0">
+        <table class="table table-hover data-table mb-0">
+            <thead>
+                <tr>
+                    <th>日期</th>
+                    <th>账户</th>
+                    <th>产品</th>
+                    <th>信号</th>
+                    <th>优先级</th>
+                    <th>评分</th>
+                    <th>原因</th>
+                    <th>状态</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for signal in signals %}
+                <tr>
+                    <td>{{ signal.signal_date }}</td>
+                    <td>{{ signal.account.account_name if signal.account else '-' }}</td>
+                    <td>{{ signal.instrument.symbol if signal.instrument else '-' }}</td>
+                    <td>
+                        {% set color = SIGNAL_TYPE_COLORS.get(signal.signal_type, 'secondary') %}
+                        <span class="badge bg-{{ color }} signal-badge">
+                            {{ SIGNAL_TYPE_LABELS.get(signal.signal_type, signal.signal_type) }}
+                        </span>
+                    </td>
+                    <td>P{{ signal.priority }}</td>
+                    <td>{{ signal.score if signal.score else '-' }}</td>
+                    <td><small>{{ signal.explanation[:80] }}{% if signal.explanation|length > 80 %}...{% endif %}</small></td>
+                    <td><span class="badge bg-secondary">{{ signal.status }}</span></td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="8" class="text-center text-muted py-4">暂无历史信号</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

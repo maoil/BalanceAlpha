@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}产品管理{% endblock %}
+{% block page_title %}<h6 class="mb-0"><i class="bi bi-collection"></i> 产品管理</h6>{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h4>产品列表</h4>
+    <div>
+        <form method="post" action="{{ url_for('instruments.fetch_all_prices') }}" class="d-inline">
+            <button type="submit" class="btn btn-outline-success me-2">
+                <i class="bi bi-cloud-download"></i> 刷新所有报价
+            </button>
+        </form>
+        <a href="{{ url_for('instruments.create_instrument') }}" class="btn btn-primary">
+            <i class="bi bi-plus-lg"></i> 新增产品
+        </a>
+    </div>
+</div>
+
+<!-- 筛选 -->
+<div class="filter-bar">
+    <form method="get" class="row g-2 align-items-end">
+        <div class="col-auto">
+            <label class="form-label mb-0 small">状态</label>
+            <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+                <option value="">全部</option>
+                <option value="active" {{ 'selected' if status_filter == 'active' }}>启用中</option>
+                <option value="watchlist" {{ 'selected' if status_filter == 'watchlist' }}>观察中</option>
+                <option value="paused" {{ 'selected' if status_filter == 'paused' }}>已暂停</option>
+                <option value="closed" {{ 'selected' if status_filter == 'closed' }}>已清仓</option>
+                <option value="archived" {{ 'selected' if status_filter == 'archived' }}>已归档</option>
+            </select>
+        </div>
+        <div class="col-auto">
+            <label class="form-label mb-0 small">账户类型</label>
+            <select name="account_type" class="form-select form-select-sm" onchange="this.form.submit()">
+                <option value="">全部</option>
+                <option value="core" {{ 'selected' if account_filter == 'core' }}>核心账户</option>
+                <option value="tactical" {{ 'selected' if account_filter == 'tactical' }}>战术账户</option>
+            </select>
+        </div>
+    </form>
+</div>
+
+<!-- 产品表格 -->
+<div class="card">
+    <div class="card-body p-0">
+        <table class="table table-hover data-table mb-0">
+            <thead>
+                <tr>
+                    <th>代码</th>
+                    <th>名称</th>
+                    <th>类型</th>
+                    <th>账户</th>
+                    <th>策略模板</th>
+                    <th>交易方式</th>
+                    <th>定投</th>
+                    <th>状态</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for inst in instruments %}
+                <tr>
+                    <td><strong>{{ inst.symbol }}</strong></td>
+                    <td>{{ inst.name }}</td>
+                    <td>
+                        <span class="badge bg-light text-dark">{{ inst.instrument_type.upper() }}</span>
+                    </td>
+                    <td>
+                        {% if inst.default_account_type == 'core' %}
+                            <span class="badge bg-primary">核心</span>
+                        {% else %}
+                            <span class="badge bg-warning text-dark">战术</span>
+                        {% endif %}
+                    </td>
+                    <td><small>{{ inst.default_strategy_template or '-' }}</small></td>
+                    <td>{{ '场内' if inst.trade_mode == 'exchange_traded' else '场外' }}</td>
+                    <td>{{ '✓' if inst.is_dca_eligible else '-' }}</td>
+                    <td>
+                        <span class="status-dot {{ inst.status }}"></span>
+                        {{ inst.status }}
+                    </td>
+                    <td>
+                        <div class="btn-group btn-group-sm">
+                            <a href="{{ url_for('instruments.edit_instrument', instrument_id=inst.id) }}"
+                               class="btn btn-outline-secondary" title="编辑">
+                                <i class="bi bi-pencil"></i>
+                            </a>
+                            <!-- 获取最新报价 -->
+                            <form method="post" action="{{ url_for('instruments.fetch_price', instrument_id=inst.id) }}" class="d-inline">
+                                <button type="submit" class="btn btn-outline-success" title="获取最新报价">
+                                    <i class="bi bi-cloud-download"></i>
+                                </button>
+                            </form>
+                            <!-- 抓取历史数据 -->
+                            <form method="post" action="{{ url_for('instruments.fetch_history', instrument_id=inst.id) }}" class="d-inline">
+                                <input type="hidden" name="days" value="365">
+                                <button type="submit" class="btn btn-outline-info" title="抓取1年历史数据">
+                                    <i class="bi bi-clock-history"></i>
+                                </button>
+                            </form>
+                            <!-- 状态变更 -->
+                            {% if inst.status == 'active' %}
+                            <form method="post" action="{{ url_for('instruments.update_status', instrument_id=inst.id) }}"
+                                  class="d-inline" onsubmit="return confirmAction('确定暂停此产品？')">
+                                <input type="hidden" name="status" value="paused">
+                                <button type="submit" class="btn btn-outline-warning" title="暂停">
+                                    <i class="bi bi-pause"></i>
+                                </button>
+                            </form>
+                            {% elif inst.status == 'paused' %}
+                            <form method="post" action="{{ url_for('instruments.update_status', instrument_id=inst.id) }}"
+                                  class="d-inline">
+                                <input type="hidden" name="status" value="active">
+                                <button type="submit" class="btn btn-outline-success" title="启用">
+                                    <i class="bi bi-play"></i>
+                                </button>
+                            </form>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="9" class="text-center text-muted py-4">暂无产品数据</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="mt-3 text-muted small">
+    <i class="bi bi-info-circle"></i>
+    <i class="bi bi-cloud-download text-success"></i> 获取最新报价 &nbsp;
+    <i class="bi bi-clock-history text-info"></i> 抓取历史数据（1年）
+</div>
+{% endblock %}

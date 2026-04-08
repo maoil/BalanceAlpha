@@ -1,0 +1,26 @@
+# BalanceAlpha - 衡策投资系统
+# Python 3.11+
+
+# Web 框架
+Flask==3.1.0
+Flask-SQLAlchemy==3.1.1
+
+# ORM & 数据库
+SQLAlchemy==2.0.36
+
+# 环境配置
+python-dotenv==1.0.1
+
+# 数据分析
+pandas==2.2.3
+numpy==2.2.1
+
+# 行情数据抓取
+akshare==1.16.19
+requests==2.32.3
+
+# 测试
+pytest==8.3.4
+
+# 生产服务器（可选）
+waitress==3.0.2

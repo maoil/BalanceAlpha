@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}持仓详情{% endblock %}
+{% block page_title %}<h6 class="mb-0"><i class="bi bi-info-circle"></i> 持仓详情</h6>{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header bg-white">
+                <strong>{{ position.instrument.symbol }} - {{ position.instrument.name }}</strong>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <div class="stat-label">账户</div>
+                        <div class="fw-bold">{{ position.account.account_name }}</div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="stat-label">持仓份额</div>
+                        <div class="fw-bold">{{ format_number(position.quantity) }}</div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="stat-label">平均成本</div>
+                        <div class="fw-bold">{{ format_number(position.avg_cost, 4) }}</div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="stat-label">当前价格</div>
+                        <div class="fw-bold">{{ format_number(position.market_price, 4) }}</div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="stat-label">当前市值</div>
+                        <div class="fw-bold">{{ format_currency(position.market_value) }}</div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="stat-label">浮动盈亏</div>
+                        <div class="fw-bold {{ 'text-profit' if (position.unrealized_pnl or 0) > 0 else 'text-loss' }}">
+                            {{ format_currency(position.unrealized_pnl) }}
+                            ({{ format_pct(position.unrealized_pnl_pct) }})
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="stat-label">账户内权重</div>
+                        <div class="fw-bold">{{ format_pct(position.weight_in_account) }}</div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="stat-label">建仓日期</div>
+                        <div class="fw-bold">{{ position.opened_at }}</div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="stat-label">状态</div>
+                        <div class="fw-bold">
+                            <span class="status-dot {{ position.position_status }}"></span>
+                            {{ position.position_status }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="mt-3">
+            <a href="{{ url_for('positions.list_positions') }}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> 返回列表
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}

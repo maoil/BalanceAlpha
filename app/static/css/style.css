@@ -1,0 +1,145 @@
+/* 衡策投资系统 - 自定义样式 */
+
+/* 侧边栏 */
+#sidebar {
+    width: 220px;
+    min-height: 100vh;
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 100;
+    overflow-y: auto;
+}
+
+#sidebar .nav-link {
+    padding: 0.6rem 1rem;
+    border-radius: 0.375rem;
+    margin-bottom: 2px;
+    font-size: 0.9rem;
+    transition: background-color 0.15s;
+}
+
+#sidebar .nav-link:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+#sidebar .nav-link.active {
+    background-color: rgba(255, 255, 255, 0.15);
+    font-weight: 600;
+}
+
+#sidebar .nav-link i {
+    margin-right: 0.5rem;
+    width: 1.2em;
+    text-align: center;
+}
+
+/* 主内容区 */
+#main-content {
+    margin-left: 220px;
+    min-height: 100vh;
+    background-color: #f5f6fa;
+}
+
+/* 统计卡片 */
+.stat-card {
+    border: none;
+    border-radius: 0.75rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    transition: transform 0.15s;
+}
+
+.stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.stat-card .stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+}
+
+.stat-card .stat-label {
+    font-size: 0.85rem;
+    color: #6c757d;
+}
+
+/* 盈亏颜色 */
+.text-profit {
+    color: #dc3545 !important; /* 中国市场红涨 */
+}
+
+.text-loss {
+    color: #198754 !important; /* 中国市场绿跌 */
+}
+
+/* 表格 */
+.table-hover tbody tr {
+    transition: background-color 0.1s;
+}
+
+.data-table {
+    font-size: 0.9rem;
+}
+
+.data-table th {
+    font-weight: 600;
+    white-space: nowrap;
+    color: #495057;
+    border-bottom: 2px solid #dee2e6;
+}
+
+.data-table td {
+    vertical-align: middle;
+}
+
+/* 信号优先级徽章 */
+.signal-badge {
+    font-size: 0.8rem;
+    padding: 0.35em 0.6em;
+}
+
+/* 页面标题 */
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.page-header h4 {
+    margin-bottom: 0;
+    font-weight: 600;
+}
+
+/* 筛选栏 */
+.filter-bar {
+    background: white;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    margin-bottom: 1rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+/* 表单 */
+.form-card {
+    background: white;
+    padding: 1.5rem;
+    border-radius: 0.75rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+/* 状态点 */
+.status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 0.3rem;
+}
+
+.status-dot.active { background-color: #198754; }
+.status-dot.watchlist { background-color: #0dcaf0; }
+.status-dot.paused { background-color: #ffc107; }
+.status-dot.closed { background-color: #6c757d; }
+.status-dot.archived { background-color: #adb5bd; }

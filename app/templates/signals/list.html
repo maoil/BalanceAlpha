@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}策略建议{% endblock %}
+{% block page_title %}<h6 class="mb-0"><i class="bi bi-lightning"></i> 策略建议</h6>{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h4>策略建议</h4>
+    <div>
+        <a href="{{ url_for('signals.signal_history') }}" class="btn btn-outline-secondary me-2">
+            <i class="bi bi-clock-history"></i> 历史记录
+        </a>
+        <form method="post" action="{{ url_for('signals.generate_signals') }}" class="d-inline">
+            <button type="submit" class="btn btn-primary"
+                    onclick="return confirmAction('确定重新生成策略信号？')">
+                <i class="bi bi-lightning"></i> 生成信号
+            </button>
+        </form>
+    </div>
+</div>
+
+<!-- 筛选 -->
+<div class="filter-bar">
+    <form method="get" class="row g-2 align-items-end">
+        <div class="col-auto">
+            <label class="form-label mb-0 small">账户</label>
+            <select name="account_id" class="form-select form-select-sm" onchange="this.form.submit()">
+                <option value="">全部</option>
+                {% for acc in accounts %}
+                <option value="{{ acc.id }}" {{ 'selected' if selected_account_id == acc.id }}>{{ acc.account_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-auto">
+            <div class="form-check mt-4">
+                <input type="checkbox" name="show_all" value="1" class="form-check-input"
+                       {{ 'checked' if show_all }} onchange="this.form.submit()" id="showAll">
+                <label class="form-check-label" for="showAll">显示所有信号</label>
+            </div>
+        </div>
+    </form>
+</div>
+
+<div class="card">
+    <div class="card-body p-0">
+        <table class="table table-hover data-table mb-0">
+            <thead>
+                <tr>
+                    <th>日期</th>
+                    <th>账户</th>
+                    <th>产品</th>
+                    <th>信号</th>
+                    <th>优先级</th>
+                    <th>评分</th>
+                    <th>说明</th>
+                    <th>风险</th>
+                    <th>状态</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for signal in signals %}
+                <tr class="{{ 'table-danger' if signal.risk_flag == 'high' else 'table-warning' if signal.risk_flag == 'medium' else '' }}">
+                    <td>{{ signal.signal_date }}</td>
+                    <td>
+                        {% if signal.account.account_type == 'core' %}
+                            <span class="badge bg-primary">核心</span>
+                        {% else %}
+                            <span class="badge bg-warning text-dark">战术</span>
+                        {% endif %}
+                    </td>
+                    <td><strong>{{ signal.instrument.symbol if signal.instrument else '-' }}</strong></td>
+                    <td>
+                        {% set color = SIGNAL_TYPE_COLORS.get(signal.signal_type, 'secondary') %}
+                        <span class="badge bg-{{ color }} signal-badge">
+                            {{ SIGNAL_TYPE_LABELS.get(signal.signal_type, signal.signal_type) }}
+                        </span>
+                    </td>
+                    <td>
+                        <span class="badge bg-{{ 'danger' if signal.priority <= 2 else 'warning text-dark' if signal.priority <= 4 else 'light text-dark' }}">
+                            P{{ signal.priority }}
+                        </span>
+                    </td>
+                    <td>{{ signal.score if signal.score else '-' }}</td>
+                    <td>
+                        <small>{{ signal.explanation }}</small>
+                    </td>
+                    <td>
+                        {% if signal.risk_flag == 'high' %}
+                            <span class="badge bg-danger">高风险</span>
+                        {% elif signal.risk_flag == 'medium' %}
+                            <span class="badge bg-warning text-dark">中风险</span>
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td>
+                        <span class="badge bg-{{ 'info' if signal.status == 'pending' else 'secondary' }}">
+                            {{ signal.status }}
+                        </span>
+                    </td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="9" class="text-center text-muted py-4">
+                        暂无信号数据。请先添加产品和行情数据，然后点击"生成信号"。
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

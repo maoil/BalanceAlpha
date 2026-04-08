@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+{% block title %}新增产品{% endblock %}
+{% block page_title %}<h6 class="mb-0"><i class="bi bi-plus-circle"></i> 新增产品</h6>{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="form-card">
+            <h5 class="mb-4">新增产品</h5>
+
+            <!-- 基金搜索区域 -->
+            <div class="card bg-light mb-4">
+                <div class="card-body">
+                    <h6><i class="bi bi-search"></i> 搜索基金/ETF（自动填充）</h6>
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-8">
+                            <input type="text" id="fundSearchInput" class="form-control"
+                                   placeholder="输入基金代码或名称，如 159941 或 纳指">
+                        </div>
+                        <div class="col-md-4">
+                            <button type="button" id="searchBtn" class="btn btn-outline-primary w-100"
+                                    onclick="searchFund()">
+                                <i class="bi bi-search"></i> 搜索
+                            </button>
+                        </div>
+                    </div>
+                    <div id="searchResults" class="mt-2" style="display:none">
+                        <table class="table table-sm table-hover bg-white mb-0">
+                            <thead>
+                                <tr><th>代码</th><th>名称</th><th>类型</th><th>操作</th></tr>
+                            </thead>
+                            <tbody id="searchResultBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <form method="post">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label">产品代码 *</label>
+                        <input type="text" name="symbol" id="symbolInput" class="form-control" required placeholder="如 159941">
+                    </div>
+                    <div class="col-md-8">
+                        <label class="form-label">产品名称 *</label>
+                        <input type="text" name="name" id="nameInput" class="form-control" required placeholder="如 纳指ETF">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">产品类型 *</label>
+                        <select name="instrument_type" id="typeSelect" class="form-select" required>
+                            <option value="etf">ETF</option>
+                            <option value="lof">LOF</option>
+                            <option value="fund">场外基金</option>
+                            <option value="cash">现金</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">交易方式</label>
+                        <select name="trade_mode" id="tradeModeSelect" class="form-select">
+                            <option value="exchange_traded">场内交易</option>
+                            <option value="eod_nav">场外（按净值）</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">市场</label>
+                        <input type="text" name="market" class="form-control" value="cn_exchange">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">所属账户 *</label>
+                        <select name="default_account_type" class="form-select" required>
+                            <option value="core">核心配置账户</option>
+                            <option value="tactical">战术轮动账户</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">策略模板</label>
+                        <select name="default_strategy_template" class="form-select">
+                            <option value="">-- 选择模板 --</option>
+                            {% for tpl in templates %}
+                            <option value="{{ tpl.template_code }}">{{ tpl.template_name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">状态</label>
+                        <select name="status" class="form-select">
+                            <option value="active">启用中</option>
+                            <option value="watchlist">观察中</option>
+                        </select>
+                    </div>
+                    <div class="col-md-12">
+                        <div class="form-check">
+                            <input type="checkbox" name="is_dca_eligible" class="form-check-input" id="dcaCheck">
+                            <label class="form-check-label" for="dcaCheck">允许定投</label>
+                        </div>
+                    </div>
+                    <div class="col-md-12">
+                        <label class="form-label">备注</label>
+                        <textarea name="notes" id="notesInput" class="form-control" rows="2"></textarea>
+                    </div>
+                </div>
+                <div class="mt-4">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-check-lg"></i> 创建
+                    </button>
+                    <a href="{{ url_for('instruments.list_instruments') }}" class="btn btn-outline-secondary ms-2">取消</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// 基金搜索
+function searchFund() {
+    const keyword = document.getElementById('fundSearchInput').value.trim();
+    if (!keyword || keyword.length < 2) {
+        alert('请输入至少2个字符');
+        return;
+    }
+
+    const btn = document.getElementById('searchBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 搜索中...';
+
+    fetch(`{{ url_for('instruments.search_fund') }}?keyword=${encodeURIComponent(keyword)}`)
+        .then(r => r.json())
+        .then(data => {
+            const tbody = document.getElementById('searchResultBody');
+            tbody.innerHTML = '';
+
+            if (data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-muted text-center">未找到匹配结果</td></tr>';
+            } else {
+                data.forEach(item => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td><code>${item.code}</code></td>
+                        <td>${item.name}</td>
+                        <td><span class="badge bg-light text-dark">${item.type.toUpperCase()}</span></td>
+                        <td><button type="button" class="btn btn-sm btn-primary"
+                            onclick="selectFund('${item.code}', '${item.name}', '${item.type}')">
+                            选择</button></td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
+            document.getElementById('searchResults').style.display = 'block';
+        })
+        .catch(e => {
+            alert('搜索失败: ' + e.message);
+        })
+        .finally(() => {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-search"></i> 搜索';
+        });
+}
+
+// 选中基金后自动填充表单
+function selectFund(code, name, type) {
+    document.getElementById('symbolInput').value = code;
+    document.getElementById('nameInput').value = name;
+    document.getElementById('typeSelect').value = type;
+
+    // 根据类型自动设置交易方式
+    if (type === 'etf' || type === 'lof') {
+        document.getElementById('tradeModeSelect').value = 'exchange_traded';
+    } else {
+        document.getElementById('tradeModeSelect').value = 'eod_nav';
+    }
+
+    document.getElementById('searchResults').style.display = 'none';
+}
+
+// 回车搜索
+document.getElementById('fundSearchInput').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); searchFund(); }
+});
+</script>
+{% endblock %}

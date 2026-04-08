@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}编辑产品{% endblock %}
+{% block page_title %}<h6 class="mb-0"><i class="bi bi-pencil"></i> 编辑产品 - {{ instrument.symbol }}</h6>{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="form-card">
+            <h5 class="mb-4">编辑产品: {{ instrument.symbol }} - {{ instrument.name }}</h5>
+            <form method="post">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label">产品代码</label>
+                        <input type="text" class="form-control" value="{{ instrument.symbol }}" disabled>
+                    </div>
+                    <div class="col-md-8">
+                        <label class="form-label">产品名称 *</label>
+                        <input type="text" name="name" class="form-control" required value="{{ instrument.name }}">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">产品类型 *</label>
+                        <select name="instrument_type" class="form-select" required>
+                            <option value="etf" {{ 'selected' if instrument.instrument_type == 'etf' }}>ETF</option>
+                            <option value="lof" {{ 'selected' if instrument.instrument_type == 'lof' }}>LOF</option>
+                            <option value="fund" {{ 'selected' if instrument.instrument_type == 'fund' }}>场外基金</option>
+                            <option value="cash" {{ 'selected' if instrument.instrument_type == 'cash' }}>现金</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">交易方式</label>
+                        <select name="trade_mode" class="form-select">
+                            <option value="exchange_traded" {{ 'selected' if instrument.trade_mode == 'exchange_traded' }}>场内交易</option>
+                            <option value="eod_nav" {{ 'selected' if instrument.trade_mode == 'eod_nav' }}>场外（按净值）</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">市场</label>
+                        <input type="text" name="market" class="form-control" value="{{ instrument.market or '' }}">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">所属账户 *</label>
+                        <select name="default_account_type" class="form-select" required>
+                            <option value="core" {{ 'selected' if instrument.default_account_type == 'core' }}>核心配置账户</option>
+                            <option value="tactical" {{ 'selected' if instrument.default_account_type == 'tactical' }}>战术轮动账户</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">策略模板</label>
+                        <select name="default_strategy_template" class="form-select">
+                            <option value="">-- 选择模板 --</option>
+                            {% for tpl in templates %}
+                            <option value="{{ tpl.template_code }}" {{ 'selected' if instrument.default_strategy_template == tpl.template_code }}>{{ tpl.template_name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">状态</label>
+                        <select name="status" class="form-select">
+                            <option value="active" {{ 'selected' if instrument.status == 'active' }}>启用中</option>
+                            <option value="watchlist" {{ 'selected' if instrument.status == 'watchlist' }}>观察中</option>
+                            <option value="paused" {{ 'selected' if instrument.status == 'paused' }}>已暂停</option>
+                            <option value="closed" {{ 'selected' if instrument.status == 'closed' }}>已清仓</option>
+                            <option value="archived" {{ 'selected' if instrument.status == 'archived' }}>已归档</option>
+                        </select>
+                    </div>
+                    <div class="col-md-12">
+                        <div class="form-check">
+                            <input type="checkbox" name="is_dca_eligible" class="form-check-input" id="dcaCheck"
+                                   {{ 'checked' if instrument.is_dca_eligible }}>
+                            <label class="form-check-label" for="dcaCheck">允许定投</label>
+                        </div>
+                    </div>
+                    <div class="col-md-12">
+                        <label class="form-label">备注</label>
+                        <textarea name="notes" class="form-control" rows="2">{{ instrument.notes or '' }}</textarea>
+                    </div>
+                </div>
+                <div class="mt-4">
+                    <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> 保存</button>
+                    <a href="{{ url_for('instruments.list_instruments') }}" class="btn btn-outline-secondary ms-2">取消</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
