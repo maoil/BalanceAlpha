@@ -10,6 +10,8 @@ class Signal(db.Model):
     __tablename__ = "signals"
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    batch_id = db.Column(db.String(36), default="", comment="生成批次ID")
+    batch_version = db.Column(db.Integer, default=1, nullable=False, comment="生成版本号")
     signal_date = db.Column(db.Date, nullable=False, comment="信号日期")
     account_id = db.Column(db.Integer, db.ForeignKey("accounts.id"), nullable=False)
     instrument_id = db.Column(db.Integer, db.ForeignKey("instruments.id"), nullable=False)
@@ -25,6 +27,7 @@ class Signal(db.Model):
     # 索引
     __table_args__ = (
         db.Index("idx_signals_date_account", "signal_date", "account_id"),
+        db.Index("idx_signals_batch_version", "batch_version"),
     )
 
     def __repr__(self) -> str:

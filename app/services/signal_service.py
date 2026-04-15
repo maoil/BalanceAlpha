@@ -9,6 +9,7 @@ import json
 import logging
 from typing import Optional
 from datetime import date
+from uuid import uuid4
 
 from app.extensions import db
 from app.models.signal import Signal
@@ -30,18 +31,39 @@ class SignalService:
     """策略信号计算服务"""
 
     @staticmethod
+    def get_latest_batch_version(
+        account_id: Optional[int] = None,
+        status: Optional[str] = None,
+    ) -> Optional[int]:
+        """获取当前最新的生成版本号"""
+        query = db.session.query(db.func.max(Signal.batch_version))
+        if account_id:
+            query = query.filter(Signal.account_id == account_id)
+        if status:
+            query = query.filter(Signal.status == status)
+        return query.scalar()
+
+    @staticmethod
     def get_latest_signals(
         account_id: Optional[int] = None,
         status: Optional[str] = None,
     ) -> list[Signal]:
-        """获取最新信号"""
-        query = Signal.query
+        """仅获取最新版本的信号"""
+        latest_batch_version = SignalService.get_latest_batch_version(
+            account_id=account_id,
+        )
+        if latest_batch_version is None:
+            return []
+
+        query = Signal.query.filter_by(batch_version=latest_batch_version)
         if account_id:
             query = query.filter_by(account_id=account_id)
         if status:
             query = query.filter_by(status=status)
         return query.order_by(
-            Signal.signal_date.desc(), Signal.priority
+            Signal.priority.asc(),
+            Signal.account_id.asc(),
+            Signal.instrument_id.asc(),
         ).all()
 
     @staticmethod
@@ -55,7 +77,24 @@ class SignalService:
     def get_history(limit: int = 100) -> list[Signal]:
         """获取信号历史"""
         return Signal.query.order_by(
-            Signal.signal_date.desc(), Signal.id.desc()
+            Signal.batch_version.desc(),
+            Signal.priority.asc(),
+            Signal.id.desc(),
+        ).limit(limit).all()
+
+    @staticmethod
+    def get_instrument_history(
+        instrument_id: int,
+        account_id: Optional[int] = None,
+        limit: int = 20,
+    ) -> list[Signal]:
+        """获取某个产品在指定账户下的历史版本"""
+        query = Signal.query.filter_by(instrument_id=instrument_id)
+        if account_id:
+            query = query.filter_by(account_id=account_id)
+        return query.order_by(
+            Signal.batch_version.desc(),
+            Signal.id.desc(),
         ).limit(limit).all()
 
     @staticmethod
@@ -72,9 +111,12 @@ class SignalService:
         if signal_date is None:
             signal_date = date.today()
 
-        # 将旧信号标记为过期
+        latest_batch_version = SignalService.get_latest_batch_version() or 0
+        next_batch_version = latest_batch_version + 1
+        batch_id = uuid4().hex
+
+        # 一旦生成新版本，旧的待处理信号统一标记为过期
         Signal.query.filter(
-            Signal.signal_date < signal_date,
             Signal.status == SignalStatus.PENDING.value,
         ).update({"status": SignalStatus.EXPIRED.value})
         db.session.commit()
@@ -97,11 +139,21 @@ class SignalService:
                 try:
                     if account.account_type == AccountType.CORE.value:
                         signal = SignalService._generate_core_signal(
-                            signal_date, account, instrument, assignment
+                            signal_date,
+                            account,
+                            instrument,
+                            assignment,
+                            batch_id=batch_id,
+                            batch_version=next_batch_version,
                         )
                     else:
                         signal = SignalService._generate_tactical_signal(
-                            signal_date, account, instrument, assignment
+                            signal_date,
+                            account,
+                            instrument,
+                            assignment,
+                            batch_id=batch_id,
+                            batch_version=next_batch_version,
                         )
 
                     if signal:
@@ -120,20 +172,24 @@ class SignalService:
                         reason_code="data_error",
                         explanation=f"无法评估：{str(e)}",
                         status=SignalStatus.PENDING.value,
+                        batch_id=batch_id,
+                        batch_version=next_batch_version,
                     )
                     db.session.add(signal)
                     generated.append(signal)
 
         db.session.commit()
-        logger.info(f"信号生成完成: 日期={signal_date}, 数量={len(generated)}")
+        logger.info(
+            f"信号生成完成: 日期={signal_date}, 版本=v{next_batch_version}, 数量={len(generated)}"
+        )
 
         from app.services.log_service import LogService
         LogService.log(
             log_type="signal",
             level="info",
             module="signal_service",
-            message=f"生成 {len(generated)} 个信号",
-            context={"date": str(signal_date)},
+            message=f"生成 v{next_batch_version} 版本的 {len(generated)} 个信号",
+            context={"date": str(signal_date), "batch_version": next_batch_version},
         )
 
         return generated
@@ -144,6 +200,8 @@ class SignalService:
         account: Account,
         instrument: Instrument,
         assignment: StrategyAssignment,
+        batch_id: str,
+        batch_version: int,
     ) -> Optional[Signal]:
         """
         核心账户信号逻辑（PRD §7.7.3 / §11.1）
@@ -174,6 +232,8 @@ class SignalService:
                 reason_code="no_data",
                 explanation="无行情数据，无法评估",
                 status=SignalStatus.PENDING.value,
+                batch_id=batch_id,
+                batch_version=batch_version,
             )
 
         # 获取持仓
@@ -260,6 +320,8 @@ class SignalService:
             explanation=explanation,
             score=total_score,
             status=SignalStatus.PENDING.value,
+            batch_id=batch_id,
+            batch_version=batch_version,
         )
 
     @staticmethod
@@ -268,6 +330,8 @@ class SignalService:
         account: Account,
         instrument: Instrument,
         assignment: StrategyAssignment,
+        batch_id: str,
+        batch_version: int,
     ) -> Optional[Signal]:
         """
         战术账户信号逻辑（PRD §7.7.4 / §11.2）
@@ -291,6 +355,8 @@ class SignalService:
                 reason_code="no_data",
                 explanation="无行情数据，无法评估",
                 status=SignalStatus.PENDING.value,
+                batch_id=batch_id,
+                batch_version=batch_version,
             )
 
         price = latest_md.close or latest_md.nav or 0
@@ -330,6 +396,8 @@ class SignalService:
                     explanation=f"⚠️ 止损！亏损 {pnl_pct:.1%}，超过 -10% 阈值，建议清仓",
                     risk_flag="high",
                     status=SignalStatus.PENDING.value,
+                    batch_id=batch_id,
+                    batch_version=batch_version,
                 )
             elif pnl_pct <= stop_loss_pct:
                 return Signal(
@@ -342,6 +410,8 @@ class SignalService:
                     explanation=f"预警减仓：亏损 {pnl_pct:.1%}，接近止损线 {stop_loss_pct:.0%}，建议减半仓",
                     risk_flag="medium",
                     status=SignalStatus.PENDING.value,
+                    batch_id=batch_id,
+                    batch_version=batch_version,
                 )
 
             # 止盈（PRD §11.3：15% 止盈1/3，25% 再止盈1/3）
@@ -355,6 +425,8 @@ class SignalService:
                     reason_code="tactical_take_profit_2",
                     explanation=f"二级止盈：盈利 {pnl_pct:.1%}，超 25%，建议再止盈 1/3",
                     status=SignalStatus.PENDING.value,
+                    batch_id=batch_id,
+                    batch_version=batch_version,
                 )
             elif pnl_pct >= take_profit_pct_1:
                 return Signal(
@@ -366,6 +438,8 @@ class SignalService:
                     reason_code="tactical_take_profit_1",
                     explanation=f"一级止盈：盈利 {pnl_pct:.1%}，超 15%，建议止盈 1/3",
                     status=SignalStatus.PENDING.value,
+                    batch_id=batch_id,
+                    batch_version=batch_version,
                 )
 
             # 确认加仓（PRD §11.3：盈利 4-5% 后可加满计划仓）
@@ -380,6 +454,8 @@ class SignalService:
                         reason_code="tactical_confirm_add",
                         explanation=f"确认加仓：盈利 {pnl_pct:.1%}，价格在 MA20 上方，可加满计划仓",
                         status=SignalStatus.PENDING.value,
+                        batch_id=batch_id,
+                        batch_version=batch_version,
                     )
 
             # 默认持有
@@ -392,6 +468,8 @@ class SignalService:
                 reason_code="tactical_hold",
                 explanation=f"持有观察：盈亏 {pnl_pct:.1%}",
                 status=SignalStatus.PENDING.value,
+                batch_id=batch_id,
+                batch_version=batch_version,
             )
 
         else:
@@ -410,6 +488,8 @@ class SignalService:
                         reason_code="tactical_trend_buy",
                         explanation=f"趋势确认：价格 {price:.3f} > MA20 {ma20:.3f}，MA20 向上，可试探买入",
                         status=SignalStatus.PENDING.value,
+                        batch_id=batch_id,
+                        batch_version=batch_version,
                     )
 
             # 默认观察
@@ -422,6 +502,8 @@ class SignalService:
                 reason_code="tactical_observe",
                 explanation=f"观察等待：价格 {price:.3f}，MA20 {ma20:.3f}，趋势未确认",
                 status=SignalStatus.PENDING.value,
+                batch_id=batch_id,
+                batch_version=batch_version,
             )
 
     @staticmethod

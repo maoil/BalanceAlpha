@@ -6,6 +6,8 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from app.services.signal_service import SignalService
 from app.services.account_service import AccountService
 from app.models.signal import Signal
+from app.models.account import Account
+from app.models.instrument import Instrument
 from app.models.position import Position
 from app.models.market_data import MarketData
 from app.models.strategy_assignment import StrategyAssignment
@@ -19,6 +21,9 @@ def list_signals():
     """当前建议列表"""
     account_id = request.args.get("account_id", type=int)
     show_all = request.args.get("show_all", "0") == "1"
+    current_batch_version = SignalService.get_latest_batch_version(
+        account_id=account_id,
+    )
 
     if show_all:
         signals = SignalService.get_latest_signals(account_id=account_id)
@@ -36,6 +41,7 @@ def list_signals():
         accounts=accounts,
         selected_account_id=account_id,
         show_all=show_all,
+        current_batch_version=current_batch_version,
     )
 
 
@@ -43,15 +49,37 @@ def list_signals():
 def generate_signals():
     """手动触发信号生成"""
     signals = SignalService.generate_signals()
-    flash(f"已生成 {len(signals)} 个策略信号", "success")
+    if signals:
+        flash(f"已生成 v{signals[0].batch_version} 版本的 {len(signals)} 个策略信号", "success")
+    else:
+        flash("本次未生成新的策略信号", "warning")
     return redirect(url_for("signals.list_signals"))
 
 
 @bp.route("/history")
 def signal_history():
     """信号历史"""
-    signals = SignalService.get_history(limit=200)
-    return render_template("signals/history.html", signals=signals)
+    instrument_id = request.args.get("instrument_id", type=int)
+    account_id = request.args.get("account_id", type=int)
+
+    instrument = Instrument.query.get(instrument_id) if instrument_id else None
+    account = Account.query.get(account_id) if account_id else None
+
+    if instrument_id:
+        signals = SignalService.get_instrument_history(
+            instrument_id=instrument_id,
+            account_id=account_id,
+            limit=50,
+        )
+    else:
+        signals = SignalService.get_history(limit=200)
+
+    return render_template(
+        "signals/history.html",
+        signals=signals,
+        instrument=instrument,
+        account=account,
+    )
 
 
 @bp.route("/detail/<int:signal_id>")
@@ -91,6 +119,11 @@ def rebalance_detail(signal_id):
         latest_md=latest_md,
         assignment=assignment,
     )
+    version_history = SignalService.get_instrument_history(
+        instrument_id=instrument.id,
+        account_id=account.id,
+        limit=10,
+    )
 
     return render_template(
         "signals/detail.html",
@@ -101,6 +134,7 @@ def rebalance_detail(signal_id):
         latest_md=latest_md,
         assignment=assignment,
         rebalance_guide=rebalance_guide,
+        version_history=version_history,
     )
 
 
@@ -141,6 +175,7 @@ def api_rebalance_guidance(signal_id):
 
     return jsonify({
         "signal_id": signal.id,
+        "batch_version": signal.batch_version,
         "instrument": {
             "symbol": instrument.symbol,
             "name": instrument.name,

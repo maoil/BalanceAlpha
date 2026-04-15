@@ -4,10 +4,18 @@
 
 {% block content %}
 <div class="page-header">
-    <h4>调仓详情 — {{ instrument.name }}</h4>
-    <a href="{{ url_for('signals.list_signals') }}" class="btn btn-outline-secondary">
-        <i class="bi bi-arrow-left"></i> 返回策略建议
-    </a>
+    <div>
+        <h4 class="mb-1">调仓详情 — {{ instrument.name }}</h4>
+        <div class="text-muted small">当前版本：<span class="badge bg-primary">V{{ signal.batch_version or 1 }}</span></div>
+    </div>
+    <div>
+        <a href="{{ url_for('signals.signal_history', instrument_id=instrument.id, account_id=account.id) }}" class="btn btn-outline-secondary me-2">
+            <i class="bi bi-clock-history"></i> 查看历史版本
+        </a>
+        <a href="{{ url_for('signals.list_signals') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> 返回策略建议
+        </a>
+    </div>
 </div>
 
 <!-- 信号摘要 -->
@@ -40,6 +48,10 @@
                                 {{ SIGNAL_TYPE_LABELS.get(signal.signal_type, signal.signal_type) }}
                             </span>
                         </td>
+                    </tr>
+                    <tr>
+                        <th>版本</th>
+                        <td><span class="badge bg-primary">V{{ signal.batch_version or 1 }}</span></td>
                     </tr>
                     <tr>
                         <th>信号日期</th>
@@ -107,6 +119,62 @@
                     </tr>
                 </table>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- 历史版本 -->
+<div class="card mb-4">
+    <div class="card-header"><i class="bi bi-clock-history"></i> 该产品历史版本</div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>版本</th>
+                        <th>日期</th>
+                        <th>信号</th>
+                        <th>优先级</th>
+                        <th>状态</th>
+                        <th>说明</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for history_signal in version_history %}
+                    <tr class="{{ 'table-primary' if history_signal.id == signal.id else '' }}">
+                        <td><span class="badge bg-primary-subtle text-primary">V{{ history_signal.batch_version or 1 }}</span></td>
+                        <td>{{ history_signal.signal_date }}</td>
+                        <td>
+                            {% set history_color = SIGNAL_TYPE_COLORS.get(history_signal.signal_type, 'secondary') %}
+                            <span class="badge bg-{{ history_color }}">
+                                {{ SIGNAL_TYPE_LABELS.get(history_signal.signal_type, history_signal.signal_type) }}
+                            </span>
+                        </td>
+                        <td>P{{ history_signal.priority }}</td>
+                        <td>
+                            <span class="badge bg-{{ 'info' if history_signal.status == 'pending' else 'secondary' }}">
+                                {{ history_signal.status }}
+                            </span>
+                        </td>
+                        <td><small>{{ history_signal.explanation }}</small></td>
+                        <td>
+                            {% if history_signal.id == signal.id %}
+                            <span class="badge bg-primary">当前</span>
+                            {% else %}
+                            <a href="{{ url_for('signals.rebalance_detail', signal_id=history_signal.id) }}" class="btn btn-sm btn-outline-primary">
+                                <i class="bi bi-search"></i> 查看
+                            </a>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="7" class="text-center text-muted py-3">暂无历史版本</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     </div>
 </div>

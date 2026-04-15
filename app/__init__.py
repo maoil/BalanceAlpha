@@ -8,6 +8,7 @@ from pathlib import Path
 
 from flask import Flask
 from dotenv import load_dotenv
+from sqlalchemy import inspect, text
 
 from app.config import config_map
 
@@ -61,6 +62,7 @@ def _init_extensions(app: Flask) -> None:
             Position, Trade, MarketData, Signal, BacktestRun, SystemLog,
         )
         db.create_all()
+        _ensure_runtime_schema(db)
 
         # 自动创建种子数据（首次启动时）
         _auto_seed(db)
@@ -120,6 +122,38 @@ def _configure_logging(app: Flask) -> None:
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
+
+
+def _ensure_runtime_schema(db) -> None:
+    """为已有数据库补齐轻量字段，避免 create_all 无法升级旧表结构。"""
+    inspector = inspect(db.engine)
+    if "signals" not in inspector.get_table_names():
+        return
+
+    columns = {column["name"] for column in inspector.get_columns("signals")}
+    statements = []
+
+    if "batch_id" not in columns:
+        statements.append(
+            text('ALTER TABLE signals ADD COLUMN batch_id VARCHAR(36) DEFAULT ""')
+        )
+    if "batch_version" not in columns:
+        statements.append(
+            text("ALTER TABLE signals ADD COLUMN batch_version INTEGER DEFAULT 1")
+        )
+
+    if statements:
+        with db.engine.begin() as conn:
+            for statement in statements:
+                conn.execute(statement)
+
+    with db.engine.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE signals SET batch_version = 1 "
+                "WHERE batch_version IS NULL OR batch_version = 0"
+            )
+        )
 
 
 def _auto_seed(db) -> None:
