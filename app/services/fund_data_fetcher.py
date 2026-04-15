@@ -178,28 +178,120 @@ class FundDataFetcher:
         """
         获取基金实时估值/最新净值
 
+        优先使用东方财富 fundgz 接口（含盘中估值），失败时降级到
+        天天基金净值接口（只有历史净值，无实时估算）。
+
         Args:
             fund_code: 基金代码
         Returns:
             {"nav": 最新净值, "est_nav": 估算净值, "est_change_pct": 估算涨幅, ...}
+            失败时返回 None
         """
+        # ── 主接口：盘中估值 (jsonpgz wrapper) ───────────────────────────
         try:
             url = f"http://fundgz.1234567.com.cn/js/{fund_code}.js"
             resp = requests.get(url, headers=HEADERS, timeout=10)
-            if resp.status_code == 200 and "jsonpgz" in resp.text:
-                data_str = resp.text.strip().replace("jsonpgz(", "").rstrip(");")
-                data = json.loads(data_str)
-                return {
-                    "code": data.get("fundcode", fund_code),
-                    "name": data.get("name", ""),
-                    "nav": float(data.get("dwjz", 0)),
-                    "est_nav": float(data.get("gsz", 0)),
-                    "est_change_pct": float(data.get("gszzl", 0)),
-                    "nav_date": data.get("jzrq", ""),
-                    "est_time": data.get("gztime", ""),
-                }
+            resp.raise_for_status()
+            raw = resp.text.strip()
+
+            if "jsonpgz" in raw:
+                # 去掉 JSONP 包装: jsonpgz({...});
+                json_str = raw
+                if json_str.startswith("jsonpgz("):
+                    json_str = json_str[len("jsonpgz("):]
+                if json_str.endswith(");"):
+                    json_str = json_str[:-2]
+                elif json_str.endswith(")"):
+                    json_str = json_str[:-1]
+
+                try:
+                    data = json.loads(json_str)
+                except json.JSONDecodeError as je:
+                    logger.warning(
+                        f"fundgz JSON 解析失败 {fund_code}: {je} | raw={raw[:200]!r}"
+                    )
+                    data = None
+
+                if data:
+                    return {
+                        "code": data.get("fundcode", fund_code),
+                        "name": data.get("name", ""),
+                        "nav": float(data.get("dwjz") or 0),
+                        "est_nav": float(data.get("gsz") or 0),
+                        "est_change_pct": float(data.get("gszzl") or 0),
+                        "nav_date": data.get("jzrq", ""),
+                        "est_time": data.get("gztime", ""),
+                    }
+            else:
+                logger.debug(
+                    f"fundgz 返回非 jsonpgz 格式 {fund_code}, raw={raw[:200]!r}"
+                )
+
+        except requests.RequestException as e:
+            logger.warning(f"fundgz 请求失败 {fund_code}: {e}")
         except Exception as e:
-            logger.error(f"获取实时估值失败 {fund_code}: {e}")
+            logger.warning(f"fundgz 处理异常 {fund_code}: {e}")
+
+        # ── 降级接口：天天基金净值 API ────────────────────────────────────
+        return FundDataFetcher._get_nav_fallback(fund_code)
+
+    @staticmethod
+    def _get_nav_fallback(fund_code: str) -> Optional[dict]:
+        """
+        降级：使用天天基金净值 API 获取最新确定净值（无实时估算）
+
+        接口: https://api.fund.eastmoney.com/f10/lsjz
+        """
+        try:
+            url = "https://api.fund.eastmoney.com/f10/lsjz"
+            params = {
+                "fundCode": fund_code,
+                "pageIndex": 1,
+                "pageSize": 1,
+                "callback": "",
+            }
+            headers = {
+                **HEADERS,
+                "Referer": f"https://fundf10.eastmoney.com/jjjz_{fund_code}.html",
+            }
+            resp = requests.get(url, params=params, headers=headers, timeout=10)
+            resp.raise_for_status()
+
+            # 若接口返回 JSONP 包装则去掉
+            raw = resp.text.strip()
+            if raw.startswith("jQuery") or raw.startswith("jsonp"):
+                # jQuery12345({...})
+                start = raw.index("(") + 1
+                end = raw.rindex(")")
+                raw = raw[start:end]
+
+            data = json.loads(raw)
+            records = (
+                data.get("Data", {}).get("LSJZList") or []
+            )
+            if records:
+                rec = records[0]
+                nav = float(rec.get("DWJZ") or 0)
+                nav_date = rec.get("FSRQ", "")
+                logger.info(
+                    f"降级接口获取净值成功 {fund_code}: nav={nav}, date={nav_date}"
+                )
+                return {
+                    "code": fund_code,
+                    "name": "",
+                    "nav": nav,
+                    "est_nav": nav,        # 降级时无估值，用确定净值代替
+                    "est_change_pct": 0.0,
+                    "nav_date": nav_date,
+                    "est_time": "",
+                }
+        except json.JSONDecodeError as je:
+            logger.error(
+                f"降级接口 JSON 解析失败 {fund_code}: {je}"
+            )
+        except Exception as e:
+            logger.error(f"降级接口请求失败 {fund_code}: {e}")
+
         return None
 
     @staticmethod
