@@ -73,25 +73,66 @@ class InstrumentService:
 
     @staticmethod
     def _auto_create_assignment(instrument: Instrument, data: dict) -> None:
-        """新增产品时自动创建策略绑定"""
+        """新增产品时自动创建策略绑定（如果未选模板则自动推断）"""
         template_code = data.get("default_strategy_template", "")
         account_type = data.get("default_account_type", "core")
+
+        # 如果没有选模板，根据产品类型和账户类型自动推断
+        if not template_code:
+            template_code = InstrumentService._infer_template_code(
+                data.get("instrument_type", "fund"),
+                account_type,
+                data.get("name", ""),
+            )
+            # 同步更新产品的 default_strategy_template 字段
+            if template_code:
+                instrument.default_strategy_template = template_code
 
         template = StrategyTemplate.query.filter_by(template_code=template_code).first()
         account = Account.query.filter_by(account_type=account_type).first()
 
         if template and account:
+            # 检查是否已有绑定
+            existing = StrategyAssignment.query.filter_by(
+                instrument_id=instrument.id,
+                account_id=account.id,
+            ).first()
+            if existing:
+                return
+
+            # 读取模板默认权重配置
+            import json
+            config = json.loads(template.config_json) if template.config_json else {}
+            default_lower = config.get("target_weight_lower", 0.0)
+            default_upper = config.get("target_weight_upper", 0.0)
+
             assignment = StrategyAssignment(
                 instrument_id=instrument.id,
                 account_id=account.id,
                 template_id=template.id,
-                target_weight_lower=data.get("target_weight_lower", 0.0),
-                target_weight_upper=data.get("target_weight_upper", 0.0),
+                target_weight_lower=data.get("target_weight_lower", default_lower),
+                target_weight_upper=data.get("target_weight_upper", default_upper),
                 allow_dca=data.get("is_dca_eligible", False),
                 allow_rebalance=True,
             )
             db.session.add(assignment)
             db.session.commit()
+
+    @staticmethod
+    def _infer_template_code(instrument_type: str, account_type: str, name: str) -> str:
+        """根据产品类型和账户类型自动推断最合适的策略模板"""
+        if account_type == "tactical":
+            return "tactical_theme_template"
+        # 核心账户
+        if instrument_type in ("etf", "lof"):
+            if "黄金" in name or "金" in name:
+                return "gold_hedge_template"
+            return "core_index_template"
+        if instrument_type == "fund":
+            if "黄金" in name or "金" in name:
+                return "gold_hedge_template"
+            return "core_active_fund_template"
+        return "core_index_template"
 
     @staticmethod
     def update(instrument_id: int, data: dict) -> Optional[Instrument]:
@@ -107,6 +148,10 @@ class InstrumentService:
                 setattr(instrument, field, data[field])
 
         db.session.commit()
+
+        # 确保策略绑定存在（补救之前没创建的情况）
+        InstrumentService._auto_create_assignment(instrument, data)
+
         return instrument
 
     @staticmethod
