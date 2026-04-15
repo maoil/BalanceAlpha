@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}调仓详情 - {{ instrument.name }}{% endblock %}
+{% block page_title %}<h6 class="mb-0"><i class="bi bi-bar-chart-steps"></i> 调仓详情</h6>{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h4>调仓详情 — {{ instrument.name }}</h4>
+    <a href="{{ url_for('signals.list_signals') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> 返回策略建议
+    </a>
+</div>
+
+<!-- 信号摘要 -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-lightning"></i> 信号摘要</div>
+            <div class="card-body">
+                <table class="table table-sm mb-0">
+                    <tr>
+                        <th style="width: 120px;">产品名称</th>
+                        <td><strong>{{ instrument.name }}</strong> <small class="text-muted">({{ instrument.symbol }})</small></td>
+                    </tr>
+                    <tr>
+                        <th>账户</th>
+                        <td>
+                            {% if account.account_type == 'core' %}
+                                <span class="badge bg-primary">核心</span>
+                            {% else %}
+                                <span class="badge bg-warning text-dark">战术</span>
+                            {% endif %}
+                            {{ account.account_name }}
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>信号类型</th>
+                        <td>
+                            {% set color = SIGNAL_TYPE_COLORS.get(signal.signal_type, 'secondary') %}
+                            <span class="badge bg-{{ color }}">
+                                {{ SIGNAL_TYPE_LABELS.get(signal.signal_type, signal.signal_type) }}
+                            </span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>信号日期</th>
+                        <td>{{ signal.signal_date }}</td>
+                    </tr>
+                    <tr>
+                        <th>优先级</th>
+                        <td>
+                            <span class="badge bg-{{ 'danger' if signal.priority <= 2 else 'warning text-dark' if signal.priority <= 4 else 'light text-dark' }}">
+                                P{{ signal.priority }}
+                            </span>
+                        </td>
+                    </tr>
+                    {% if signal.score %}
+                    <tr>
+                        <th>评分</th>
+                        <td>{{ signal.score }}</td>
+                    </tr>
+                    {% endif %}
+                    <tr>
+                        <th>说明</th>
+                        <td>{{ signal.explanation }}</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-pie-chart"></i> 持仓状态</div>
+            <div class="card-body">
+                <table class="table table-sm mb-0">
+                    <tr>
+                        <th style="width: 120px;">当前权重</th>
+                        <td>{{ "%.2f%%"|format((rebalance_guide.current_status.current_weight or 0) * 100) }}</td>
+                    </tr>
+                    <tr>
+                        <th>持有份额</th>
+                        <td>{{ "%.2f"|format(rebalance_guide.current_status.current_quantity or 0) }}</td>
+                    </tr>
+                    <tr>
+                        <th>持仓市值</th>
+                        <td>¥{{ "%.2f"|format(rebalance_guide.current_status.current_value or 0) }}</td>
+                    </tr>
+                    <tr>
+                        <th>最新价格</th>
+                        <td>
+                            {% if rebalance_guide.current_status.latest_price %}
+                                {{ "%.4f"|format(rebalance_guide.current_status.latest_price) }}
+                                <small class="text-muted">({{ rebalance_guide.current_status.price_date }})</small>
+                            {% else %}
+                                <span class="text-muted">无数据</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>目标权重</th>
+                        <td>
+                            {{ "%.2f%%"|format((rebalance_guide.target_status.target_weight_lower or 0) * 100) }}
+                            ~
+                            {{ "%.2f%%"|format((rebalance_guide.target_status.target_weight_upper or 0) * 100) }}
+                            <small class="text-muted">(中位 {{ "%.2f%%"|format((rebalance_guide.target_status.target_weight_mid or 0) * 100) }})</small>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 调仓建议 -->
+<div class="card mb-4">
+    <div class="card-header"><i class="bi bi-list-check"></i> 调仓建议</div>
+    <div class="card-body">
+        {% if rebalance_guide.rebalance_steps %}
+            <div class="list-group">
+                {% for step in rebalance_guide.rebalance_steps %}
+                <div class="list-group-item">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <h6 class="mb-1">
+                                <span class="badge bg-primary rounded-pill me-2">步骤 {{ step.step }}</span>
+                                {{ step.description }}
+                            </h6>
+                            {% if step.suggested_timing %}
+                            <small class="text-muted">建议时间：{{ step.suggested_timing }}</small>
+                            {% endif %}
+                        </div>
+                        {% if step.action %}
+                        <span class="badge bg-{{ 'success' if step.action == 'buy' else 'danger' }}">
+                            {{ '买入' if step.action == 'buy' else '卖出' }}
+                        </span>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="alert alert-info mb-0">
+                <i class="bi bi-info-circle"></i>
+                {{ rebalance_guide.notes or '暂无具体调仓步骤建议。' }}
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- 风险提示 -->
+{% if rebalance_guide.risk_warnings %}
+<div class="card mb-4">
+    <div class="card-header"><i class="bi bi-exclamation-triangle"></i> 风险提示</div>
+    <div class="card-body">
+        <ul class="mb-0">
+            {% for warning in rebalance_guide.risk_warnings %}
+            <li>{{ warning }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}
