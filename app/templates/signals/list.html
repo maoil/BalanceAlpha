@@ -54,6 +54,7 @@
                     <th>说明</th>
                     <th>风险</th>
                     <th>状态</th>
+                    <th>操作</th>
                 </tr>
             </thead>
             <tbody>
@@ -67,7 +68,7 @@
                             <span class="badge bg-warning text-dark">战术</span>
                         {% endif %}
                     </td>
-                    <td><strong>{{ signal.instrument.symbol if signal.instrument else '-' }}</strong></td>
+                    <td title="{{ signal.instrument.symbol if signal.instrument else '' }}"><strong>{{ signal.instrument.name if signal.instrument else '-' }}</strong></td>
                     <td>
                         {% set color = SIGNAL_TYPE_COLORS.get(signal.signal_type, 'secondary') %}
                         <span class="badge bg-{{ color }} signal-badge">
@@ -97,10 +98,15 @@
                             {{ signal.status }}
                         </span>
                     </td>
+                    <td>
+                        <a href="{{ url_for('signals.rebalance_detail', signal_id=signal.id) }}" class="btn btn-sm btn-outline-primary" title="查看调仓建议">
+                            <i class="bi bi-search"></i> 详情
+                        </a>
+                    </td>
                 </tr>
             {% else %}
                 <tr>
-                    <td colspan="9" class="text-center text-muted py-4">
+                    <td colspan="10" class="text-center text-muted py-4">
                         暂无信号数据。请先添加产品和行情数据，然后点击"生成信号"。
                     </td>
                 </tr>

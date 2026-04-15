@@ -423,3 +423,90 @@ class SignalService:
                 explanation=f"观察等待：价格 {price:.3f}，MA20 {ma20:.3f}，趋势未确认",
                 status=SignalStatus.PENDING.value,
             )
+
+    @staticmethod
+    def get_rebalance_guidance(
+        signal: "Signal",
+        position: Optional["Position"],
+        latest_md: Optional["MarketData"],
+        assignment: Optional["StrategyAssignment"],
+    ) -> dict:
+        """
+        获取渐进式调仓建议（占位接口，待完善）
+
+        根据当前信号、持仓、行情、策略绑定，计算分步调仓方案。
+        返回结构化的调仓指导信息，包括：
+        - 当前状态摘要
+        - 目标状态
+        - 建议的调仓步骤（分批执行）
+        - 风险提示
+
+        TODO: 后续完善以下功能
+        1. 根据信号类型生成不同的调仓方案
+        2. 分批调仓计划（如3次调仓，每次调整比例）
+        3. 具体的买入/卖出金额和份额计算
+        4. 考虑交易成本和最小交易单位
+        5. 时间窗口建议（如每周调整一次）
+
+        Args:
+            signal: 当前信号
+            position: 当前持仓（可为空）
+            latest_md: 最新行情数据（可为空）
+            assignment: 策略绑定（可为空）
+
+        Returns:
+            dict: 调仓建议结构
+        """
+        instrument = signal.instrument
+
+        # 当前状态
+        current_weight = position.weight_in_account if position else 0
+        current_quantity = position.quantity if position else 0
+        current_value = position.market_value if position else 0
+        latest_price = None
+        if latest_md:
+            latest_price = latest_md.close or latest_md.nav or 0
+
+        # 目标状态
+        target_lower = assignment.target_weight_lower if assignment else 0
+        target_upper = assignment.target_weight_upper if assignment else 0
+        target_mid = (target_lower + target_upper) / 2 if (target_lower + target_upper) > 0 else 0
+
+        return {
+            "signal_summary": {
+                "signal_type": signal.signal_type,
+                "explanation": signal.explanation,
+                "score": signal.score,
+                "priority": signal.priority,
+            },
+            "current_status": {
+                "instrument_name": instrument.name,
+                "instrument_symbol": instrument.symbol,
+                "current_weight": current_weight,
+                "current_quantity": current_quantity,
+                "current_value": current_value,
+                "latest_price": latest_price,
+                "price_date": str(latest_md.trade_date) if latest_md else None,
+            },
+            "target_status": {
+                "target_weight_lower": target_lower,
+                "target_weight_upper": target_upper,
+                "target_weight_mid": target_mid,
+            },
+            "rebalance_steps": [
+                # TODO: 待完善 - 根据信号类型生成具体的分步调仓计划
+                # 示例结构:
+                # {
+                #     "step": 1,
+                #     "action": "buy" / "sell",
+                #     "ratio": 0.33,  # 本次调整占总调整量的比例
+                #     "description": "第一步：买入目标金额的 1/3",
+                #     "suggested_timing": "本周内",
+                # },
+            ],
+            "risk_warnings": [
+                # TODO: 待完善 - 根据市场状态生成风险提示
+            ],
+            "notes": "调仓建议功能开发中，后续将提供详细的分步调仓方案。",
+        }
+

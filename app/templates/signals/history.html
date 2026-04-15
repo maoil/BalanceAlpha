@@ -30,7 +30,7 @@
                 <tr>
                     <td>{{ signal.signal_date }}</td>
                     <td>{{ signal.account.account_name if signal.account else '-' }}</td>
-                    <td>{{ signal.instrument.symbol if signal.instrument else '-' }}</td>
+                    <td title="{{ signal.instrument.symbol if signal.instrument else '' }}">{{ signal.instrument.name if signal.instrument else '-' }}</td>
                     <td>
                         {% set color = SIGNAL_TYPE_COLORS.get(signal.signal_type, 'secondary') %}
                         <span class="badge bg-{{ color }} signal-badge">
