@@ -233,7 +233,7 @@ pip install -r requirements.txt
 ```env
 OPENAI_API_KEY=your-api-key
 OPENAI_BASE_URL=https://your-compatible-api/v1
-AI_MODEL_NAME=gpt-4o-mini
+AI_MODEL_NAME=Qwen3.6-Plus
 ```
 
 说明：

@@ -116,7 +116,7 @@ class AIAnalysisService:
             record = SignalAIAnalysis(
                 signal_id=signal.id,
                 analysis_type="signal_explanation",
-                provider="langchain_openai",
+                provider="dashscope_tongyi",
                 model_name=result.model_name,
                 prompt_version=AIPromptBuilder.PROMPT_VERSION,
                 input_snapshot_json=json.dumps(snapshot, ensure_ascii=False),
@@ -146,7 +146,7 @@ class AIAnalysisService:
             record = SignalAIAnalysis(
                 signal_id=signal.id,
                 analysis_type="signal_explanation",
-                provider="langchain_openai",
+                provider="dashscope_tongyi",
                 model_name="",
                 prompt_version=AIPromptBuilder.PROMPT_VERSION,
                 input_snapshot_json=json.dumps(snapshot, ensure_ascii=False),

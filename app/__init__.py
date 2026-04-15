@@ -119,9 +119,15 @@ def _register_context_processors(app: Flask) -> None:
 def _configure_logging(app: Flask) -> None:
     """配置日志"""
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.DEBUG,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
+    # 确保 app.services 命名空间的日志都输出到控制台
+    services_logger = logging.getLogger("app.services")
+    services_logger.setLevel(logging.DEBUG)
+    # 避免 werkzeug / sqlalchemy 刷屏
+    logging.getLogger("werkzeug").setLevel(logging.INFO)
+    logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
 
 
 def _ensure_runtime_schema(db) -> None:
