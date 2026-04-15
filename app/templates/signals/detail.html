@@ -179,6 +179,66 @@
     </div>
 </div>
 
+<!-- AI 分析 -->
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-stars"></i> AI 分析</span>
+        <button type="button" class="btn btn-sm btn-outline-primary" id="generateAiAnalysisBtn">
+            <i class="bi bi-stars"></i> {{ '重新生成 AI 分析' if latest_ai_analysis else '生成 AI 分析' }}
+        </button>
+    </div>
+    <div class="card-body" id="aiAnalysisCardBody">
+        {% if latest_ai_analysis and latest_ai_analysis.status == 'success' %}
+            <p class="mb-2"><strong>总结：</strong>{{ latest_ai_analysis.summary }}</p>
+
+            {% if latest_ai_output and latest_ai_output.reasoning %}
+            <div class="mb-3">
+                <div class="fw-semibold mb-1">分析依据</div>
+                <ul class="mb-0">
+                    {% for item in latest_ai_output.reasoning %}
+                    <li>{{ item }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+
+            {% if latest_ai_output and latest_ai_output.risks %}
+            <div class="mb-3">
+                <div class="fw-semibold mb-1">风险提示</div>
+                <ul class="mb-0">
+                    {% for item in latest_ai_output.risks %}
+                    <li>{{ item }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+
+            {% if latest_ai_output and latest_ai_output.action_suggestion %}
+            <div class="mb-2">
+                <div class="fw-semibold mb-1">执行建议</div>
+                <div>{{ latest_ai_output.action_suggestion }}</div>
+            </div>
+            {% endif %}
+
+            <div class="text-muted small">
+                模型：{{ latest_ai_analysis.model_name or '-' }} /
+                Prompt：{{ latest_ai_analysis.prompt_version }} /
+                置信度：{{ "%.2f"|format(latest_ai_analysis.confidence or 0) }} /
+                生成时间：{{ latest_ai_analysis.created_at }}
+            </div>
+        {% elif latest_ai_analysis and latest_ai_analysis.status == 'error' %}
+            <div class="alert alert-warning mb-0">
+                <i class="bi bi-exclamation-triangle"></i>
+                AI 分析生成失败：{{ latest_ai_analysis.error_message or '未知错误' }}
+            </div>
+        {% else %}
+            <div class="text-muted">
+                暂无 AI 分析，可点击右上角按钮生成。
+            </div>
+        {% endif %}
+    </div>
+</div>
+
 <!-- 调仓建议 -->
 <div class="card mb-4">
     <div class="card-header"><i class="bi bi-list-check"></i> 调仓建议</div>
@@ -229,4 +289,39 @@
 </div>
 {% endif %}
 
+{% endblock %}
+
+{% block scripts %}
+<script>
+const aiBtn = document.getElementById('generateAiAnalysisBtn');
+
+if (aiBtn) {
+    aiBtn.addEventListener('click', async () => {
+        const originalHtml = aiBtn.innerHTML;
+        aiBtn.disabled = true;
+        aiBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 生成中...';
+
+        try {
+            const response = await fetch('{{ url_for("signals.create_signal_ai_analysis", signal_id=signal.id) }}', {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                window.location.reload();
+            } else {
+                alert('AI 分析生成失败：' + (data.error_message || '未知错误'));
+            }
+        } catch (error) {
+            alert('AI 分析生成失败：' + error.message);
+        } finally {
+            aiBtn.disabled = false;
+            aiBtn.innerHTML = originalHtml;
+        }
+    });
+}
+</script>
 {% endblock %}

@@ -43,6 +43,7 @@
                     <th>优先级</th>
                     <th>评分</th>
                     <th>原因</th>
+                    <th>AI 分析</th>
                     <th>状态</th>
                     <th>操作</th>
                 </tr>
@@ -63,6 +64,17 @@
                     <td>P{{ signal.priority }}</td>
                     <td>{{ signal.score if signal.score else '-' }}</td>
                     <td><small>{{ signal.explanation[:80] }}{% if signal.explanation|length > 80 %}...{% endif %}</small></td>
+                    <td>
+                        {% set ai_analysis = latest_ai_map.get(signal.id) %}
+                        {% if ai_analysis and ai_analysis.status == 'success' %}
+                            <span class="badge bg-success-subtle text-success">已生成</span>
+                            <div><small>{{ ai_analysis.summary[:40] }}{% if ai_analysis.summary|length > 40 %}...{% endif %}</small></div>
+                        {% elif ai_analysis and ai_analysis.status == 'error' %}
+                            <span class="badge bg-warning text-dark">失败</span>
+                        {% else %}
+                            <span class="text-muted">未生成</span>
+                        {% endif %}
+                    </td>
                     <td><span class="badge bg-secondary">{{ signal.status }}</span></td>
                     <td>
                         <a href="{{ url_for('signals.rebalance_detail', signal_id=signal.id) }}" class="btn btn-sm btn-outline-primary">
@@ -72,7 +84,7 @@
                 </tr>
             {% else %}
                 <tr>
-                    <td colspan="10" class="text-center text-muted py-4">暂无历史信号</td>
+                    <td colspan="11" class="text-center text-muted py-4">暂无历史信号</td>
                 </tr>
             {% endfor %}
             </tbody>

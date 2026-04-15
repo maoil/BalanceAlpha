@@ -11,6 +11,7 @@ from app.models.position import Position
 from app.models.trade import Trade
 from app.models.market_data import MarketData
 from app.models.signal import Signal
+from app.models.signal_ai_analysis import SignalAIAnalysis
 from app.models.backtest_run import BacktestRun
 from app.models.system_log import SystemLog
 
@@ -23,6 +24,7 @@ __all__ = [
     "Trade",
     "MarketData",
     "Signal",
+    "SignalAIAnalysis",
     "BacktestRun",
     "SystemLog",
 ]

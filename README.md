@@ -61,6 +61,15 @@ BalanceAlpha 目前是一个基于 Flask 的本地 Web 应用，核心目标是�
 - 参数变更会写入系统日志
 - 策略信号生成也会记录日志
 
+### 7. AI 分析子层
+
+- LangChain 仅用于策略建议的 AI 解释与风险分析
+- AI 分析不会覆盖规则信号，只做解释、风险提示和执行建议补充
+- 支持单条信号生成 AI 分析
+- 支持为当前版本全部信号批量生成 AI 分析
+- 支持在详情页和历史版本页查看 AI 分析结果
+- AI 分析结果单独落表保存，便于回放和后续扩展
+
 ## 技术栈
 
 - `Python 3.11+`
@@ -163,6 +172,8 @@ DATABASE_URL=sqlite:///data/balancealpha.db
 - 只显示当前最新版本的策略建议
 - 可切换“显示当前版本全部状态”
 - 可查看建议详情、历史版本、调仓建议 API
+- 支持单条/批量生成 AI 分析
+- 历史版本页可查看对应信号的 AI 分析摘要
 
 ### 参数配置
 
@@ -191,6 +202,44 @@ DATABASE_URL=sqlite:///data/balancealpha.db
 
 - 应用启动时会自动检查并补齐 `signals.batch_id` 和 `signals.batch_version`
 - 对于旧数据库，一般不需要手工迁移；如需单独处理，也可以使用 `scripts/migrate_signals_version.py`
+
+## AI 分析初始化与迁移
+
+AI 分析结果使用独立表 `signal_ai_analysis` 保存，不与 `signals` 主表混用。
+
+### 自动初始化
+
+- 正常启动应用时，`db.create_all()` 会自动创建缺失的 `signal_ai_analysis` 表
+- 只要代码已包含 `SignalAIAnalysis` 模型并成功启动，一般不需要额外操作
+
+### 手工迁移旧库
+
+如果你想在不启动 Web 服务的情况下单独初始化 AI 分析表，可执行：
+
+```bash
+python scripts/migrate_signal_ai_analysis.py
+```
+
+### AI 分析运行前准备
+
+安装依赖：
+
+```bash
+pip install -r requirements.txt
+```
+
+配置环境变量：
+
+```env
+OPENAI_API_KEY=your-api-key
+OPENAI_BASE_URL=https://your-compatible-api/v1
+AI_MODEL_NAME=gpt-4o-mini
+```
+
+说明：
+
+- `OPENAI_BASE_URL` 可选，使用 OpenAI 兼容接口时填写
+- 未配置 `OPENAI_API_KEY` 时，AI 分析按钮会生成失败记录并提示缺少密钥
 
 ## 项目结构
 
@@ -222,6 +271,7 @@ BalanceAlpha/
 - `python run.py`：启动开发环境
 - `python scripts/init_db.py`：初始化数据库和种子数据
 - `python scripts/migrate_signals_version.py`：为旧库补 `signals` 版本字段
+- `python scripts/migrate_signal_ai_analysis.py`：初始化 AI 分析结果表
 - `python scripts/import_market_data.py`：导入行情数据
 - `python scripts/check_db.py`：检查数据库状态
 

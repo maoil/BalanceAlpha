@@ -11,6 +11,11 @@ SQLAlchemy==2.0.36
 # 环境配置
 python-dotenv==1.0.1
 
+# AI 分析
+langchain
+langchain-openai
+pydantic
+
 # 数据分析
 pandas==2.2.3
 numpy==2.2.1
