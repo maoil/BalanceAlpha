@@ -106,3 +106,33 @@ class AIPromptBuilder:
 """.strip()
 
         return system_prompt, user_prompt
+
+    @staticmethod
+    def build_critique_messages(snapshot: dict, draft_text: str) -> tuple[str, str]:
+        sections = []
+        sections.append("以下是你的二次审查任务指令：")
+        
+        critique_path = AIPromptBuilder.CONFIG_DIR / "critique.md"
+        if critique := AIPromptBuilder._read_text(critique_path):
+            sections.extend(["# 审查与修改准则 (Critique Guidelines)", critique])
+        else:
+            sections.extend([
+                "# 审查与修改准则 (Critique Guidelines)", 
+                "请仔细核对初稿内容与原始数据，检查是否存在编造属性、逻辑谬误或违背输出格式要求的现象。纠错后输出最终的结构化 JSON。"
+            ])
+            
+        system_prompt = "\\n\\n".join(section for section in sections if section and section.strip())
+
+        user_prompt = f"""
+请审视以下由系统生成的初稿，与原始快照数据进行比对，指出并修改所有的幻觉和矛盾，并**重新输出一份修正后的最终 JSON 结果**。
+
+【原始快照输入数据】
+{json.dumps(snapshot, ensure_ascii=False, indent=2)}
+
+【模型初稿输出 (Draft Output)】
+{draft_text}
+
+请参考上述要求与数据，直接给出最终修订后的 JSON 格式输出：
+""".strip()
+
+        return system_prompt, user_prompt

@@ -72,30 +72,37 @@ class LangChainSignalAnalyzer:
             logger.error("[LangChainSignalAnalyzer] 模型初始化失败:\n%s", traceback.format_exc())
             raise
 
-        # ── Step 3: 调用 API ─────────────────────────────────────────────────
+        # ── Step 3: 初次调用 API (Draft) ──────────────────────────────────────────────
         try:
-            logger.info("[LangChainSignalAnalyzer] 调用 DashScope API (OpenAI 兼容模式)...")
-            response = model.invoke([
+            logger.info("[LangChainSignalAnalyzer] 初次调用 DashScope API 获取草稿 (Draft)...")
+            draft_response = model.invoke([
                 ("system", system_prompt),
                 ("human", user_prompt),
             ])
+            draft_text = draft_response.content.strip()
             logger.info(
-                "[LangChainSignalAnalyzer] API 调用成功: response_type=%s",
-                type(response).__name__,
+                "[LangChainSignalAnalyzer] 初稿获取成功 (前200字符): %s",
+                draft_text[:200],
             )
         except Exception:
-            logger.error("[LangChainSignalAnalyzer] API 调用失败:\n%s", traceback.format_exc())
+            logger.error("[LangChainSignalAnalyzer] 初次 API 调用失败:\\n%s", traceback.format_exc())
             raise
 
-        # ── Step 4: 提取原始文本 ─────────────────────────────────────────────
+        # ── Step 4: 二次调用 API (Critique & Refine) ──────────────────────────────────
         try:
-            raw_text = response.content.strip()
+            c_system, c_user = AIPromptBuilder.build_critique_messages(snapshot, draft_text)
+            logger.info("[LangChainSignalAnalyzer] 执行二次审查与自我纠错调用...")
+            final_response = model.invoke([
+                ("system", c_system),
+                ("human", c_user),
+            ])
+            raw_text = final_response.content.strip()
             logger.info(
-                "[LangChainSignalAnalyzer] 原始响应(前500字符): %s",
-                raw_text[:500],
+                "[LangChainSignalAnalyzer] 修正后响应 (前200字符): %s",
+                raw_text[:200],
             )
         except Exception:
-            logger.error("[LangChainSignalAnalyzer] 读取 response.content 失败:\n%s", traceback.format_exc())
+            logger.error("[LangChainSignalAnalyzer] 二次审查调用失败:\\n%s", traceback.format_exc())
             raise
 
         # ── Step 5: 清理 Markdown 代码块 ─────────────────────────────────────
