@@ -87,7 +87,12 @@
                 <table class="table table-sm mb-0">
                     <tr>
                         <th style="width: 120px;">当前权重</th>
-                        <td>{{ "%.2f%%"|format((rebalance_guide.current_status.current_weight or 0) * 100) }}</td>
+                        <td>
+                            {{ "%.2f%%"|format((rebalance_guide.current_status.current_weight or 0) * 100) }}
+                            <small class="text-muted">
+                                （偏离中位 {{ "%.2f%%"|format((rebalance_guide.current_status.current_deviation or 0) * 100) }}）
+                            </small>
+                        </td>
                     </tr>
                     <tr>
                         <th>持有份额</th>
@@ -109,12 +114,43 @@
                         </td>
                     </tr>
                     <tr>
+                        <th>账户总资产</th>
+                        <td>{{ format_currency(rebalance_guide.current_status.account_total_value or 0) }}</td>
+                    </tr>
+                    <tr>
+                        <th>现金/货基</th>
+                        <td>
+                            {{ format_currency(rebalance_guide.current_status.cash_value or 0) }}
+                            <small class="text-muted">
+                                （{{ "%.2f%%"|format((rebalance_guide.current_status.cash_weight or 0) * 100) }}）
+                            </small>
+                        </td>
+                    </tr>
+                    <tr>
                         <th>目标权重</th>
                         <td>
                             {{ "%.2f%%"|format((rebalance_guide.target_status.target_weight_lower or 0) * 100) }}
                             ~
                             {{ "%.2f%%"|format((rebalance_guide.target_status.target_weight_upper or 0) * 100) }}
                             <small class="text-muted">(中位 {{ "%.2f%%"|format((rebalance_guide.target_status.target_weight_mid or 0) * 100) }})</small>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>目标市值</th>
+                        <td>
+                            {{ format_currency(rebalance_guide.target_status.target_value_lower or 0) }}
+                            ~
+                            {{ format_currency(rebalance_guide.target_status.target_value_upper or 0) }}
+                            <small class="text-muted">(中位 {{ format_currency(rebalance_guide.target_status.target_value_mid or 0) }})</small>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>调仓缺口</th>
+                        <td>
+                            {{ format_currency(rebalance_guide.target_status.gap_value_to_mid or 0) }}
+                            <small class="text-muted">
+                                （约 {{ "%.2f"|format(rebalance_guide.target_status.gap_quantity_to_mid or 0) }} 份）
+                            </small>
                         </td>
                     </tr>
                 </table>
@@ -250,19 +286,60 @@
                     <div class="d-flex justify-content-between align-items-start">
                         <div>
                             <h6 class="mb-1">
-                                <span class="badge bg-primary rounded-pill me-2">步骤 {{ step.step }}</span>
+                                <span class="badge bg-primary rounded-pill me-2">步骤 {{ loop.index }}</span>
                                 {{ step.description }}
                             </h6>
                             {% if step.suggested_timing %}
-                            <small class="text-muted">建议时间：{{ step.suggested_timing }}</small>
+                            <div><small class="text-muted">建议时间：{{ step.suggested_timing }}</small></div>
                             {% endif %}
                         </div>
                         {% if step.action %}
-                        <span class="badge bg-{{ 'success' if step.action == 'buy' else 'danger' }}">
-                            {{ '买入' if step.action == 'buy' else '卖出' }}
+                        <span class="badge bg-{{ 'success' if step.action == 'buy' else 'danger' if step.action == 'sell' else 'secondary' }}">
+                            {{ '买入' if step.action == 'buy' else '卖出' if step.action == 'sell' else step.action }}
                         </span>
                         {% endif %}
                     </div>
+                    <div class="mt-2 small text-muted d-flex flex-wrap gap-3">
+                        {% if step.amount %}
+                        <span>金额：{{ format_currency(step.amount) }}</span>
+                        {% endif %}
+                        {% if step.quantity %}
+                        <span>份额：{{ "%.2f"|format(step.quantity) }}</span>
+                        {% endif %}
+                        {% if step.price_reference %}
+                        <span>参考价：{{ "%.4f"|format(step.price_reference) }}</span>
+                        {% endif %}
+                        {% if step.target_weight_after %}
+                        <span>执行后仓位：{{ "%.2f%%"|format((step.target_weight_after or 0) * 100) }}</span>
+                        {% endif %}
+                        {% if step.target_value_after %}
+                        <span>执行后市值：{{ format_currency(step.target_value_after) }}</span>
+                        {% endif %}
+                    </div>
+                    {% if step.funding_source %}
+                    <div class="mt-2">
+                        <span class="badge bg-light text-dark">资金来源</span>
+                        <span class="small">{{ step.funding_source }}</span>
+                    </div>
+                    {% endif %}
+                    {% if step.destination %}
+                    <div class="mt-2">
+                        <span class="badge bg-light text-dark">资金去向</span>
+                        <span class="small">{{ step.destination }}</span>
+                    </div>
+                    {% endif %}
+                    {% if step.condition %}
+                    <div class="mt-2">
+                        <span class="badge bg-light text-dark">执行条件</span>
+                        <span class="small">{{ step.condition }}</span>
+                    </div>
+                    {% endif %}
+                    {% if step.rationale %}
+                    <div class="mt-2">
+                        <span class="badge bg-light text-dark">原因</span>
+                        <span class="small">{{ step.rationale }}</span>
+                    </div>
+                    {% endif %}
                 </div>
                 {% endfor %}
             </div>

@@ -4,7 +4,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 
 from app.services.instrument_service import InstrumentService
-from app.services.fund_data_fetcher import FundDataFetcher
+from app.services.fund_data_fetcher import FundDataFetcher, DEFAULT_HISTORY_DAYS
 from app.models.strategy_template import StrategyTemplate
 from app.models.account import Account
 
@@ -44,12 +44,15 @@ def fetch_price(instrument_id: int):
 @bp.route("/<int:instrument_id>/fetch_history", methods=["POST"])
 def fetch_history(instrument_id: int):
     """抓取并导入历史行情数据"""
-    days = int(request.form.get("days", 365))
+    days = int(request.form.get("days", DEFAULT_HISTORY_DAYS))
     result = FundDataFetcher.fetch_and_import_history(instrument_id, days=days)
     if "error" in result:
         flash(f"导入失败: {result['error']}", "error")
     else:
-        flash(f"历史数据导入: 新增 {result['imported']} 条, 跳过 {result['skipped']} 条", "success")
+        flash(
+            f"历史数据导入: 近 {result['days_requested']} 天, 新增 {result['imported']} 条, 跳过 {result['skipped']} 条",
+            "success",
+        )
     return redirect(url_for("instruments.list_instruments"))
 
 
@@ -77,6 +80,8 @@ def list_instruments():
         instruments=instruments,
         status_filter=status_filter,
         account_filter=account_filter,
+        default_history_days=DEFAULT_HISTORY_DAYS,
+        default_history_years=DEFAULT_HISTORY_DAYS // 365,
     )
 
 

@@ -95,8 +95,8 @@
                             </form>
                             <!-- 抓取历史数据 -->
                             <form method="post" action="{{ url_for('instruments.fetch_history', instrument_id=inst.id) }}" class="d-inline">
-                                <input type="hidden" name="days" value="365">
-                                <button type="submit" class="btn btn-outline-info" title="抓取1年历史数据">
+                                <input type="hidden" name="days" value="{{ default_history_days }}">
+                                <button type="submit" class="btn btn-outline-info" title="抓取{{ default_history_years }}年历史数据">
                                     <i class="bi bi-clock-history"></i>
                                 </button>
                             </form>
@@ -134,6 +134,7 @@
 <div class="mt-3 text-muted small">
     <i class="bi bi-info-circle"></i>
     <i class="bi bi-cloud-download text-success"></i> 获取最新报价 &nbsp;
-    <i class="bi bi-clock-history text-info"></i> 抓取历史数据（1年）
+    <i class="bi bi-clock-history text-info"></i> 抓取历史数据（默认 {{ default_history_years }} 年）
+    <span class="ms-2">建议先补足 {{ default_history_years }} 年历史，再进行回测。</span>
 </div>
 {% endblock %}

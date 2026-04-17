@@ -54,6 +54,12 @@
                     </a>
                 </li>
                 <li class="nav-item">
+                    <a class="nav-link text-white {% if request.endpoint and request.endpoint.startswith('backtests') %}active{% endif %}"
+                       href="{{ url_for('backtests.list_runs') }}">
+                        <i class="bi bi-activity"></i> 回测
+                    </a>
+                </li>
+                <li class="nav-item">
                     <a class="nav-link text-white {% if request.endpoint and request.endpoint.startswith('settings') %}active{% endif %}"
                        href="{{ url_for('settings.list_templates') }}">
                         <i class="bi bi-gear"></i> 参数配置

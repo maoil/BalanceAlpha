@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+{% block title %}回测{% endblock %}
+{% block page_title %}<h6 class="mb-0"><i class="bi bi-activity"></i> 回测</h6>{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+    <div>
+        <h4 class="mb-1">策略回测</h4>
+        <div class="text-muted small">当前活跃策略绑定 {{ active_assignments }} 条，可直接发起账户级或单品种回测。</div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-play-circle"></i> 新建回测</div>
+            <div class="card-body">
+                <form method="post" action="{{ url_for('backtests.create_run') }}" class="row g-3">
+                    <div class="col-12">
+                        <label class="form-label">回测名称</label>
+                        <input type="text" name="run_name" class="form-control" placeholder="留空则自动生成">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">账户</label>
+                        <select name="account_id" class="form-select" required>
+                            <option value="">请选择账户</option>
+                            {% for account in accounts %}
+                            <option value="{{ account.id }}">{{ account.account_name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">产品（可选）</label>
+                        <select name="instrument_id" class="form-select">
+                            <option value="">全部已绑定产品</option>
+                            {% for instrument in instruments %}
+                            <option value="{{ instrument.id }}" data-account-ids="{{ instrument_account_scope.get(instrument.id, '') }}">
+                                {{ instrument.symbol }} - {{ instrument.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">模板（可选）</label>
+                        <select name="template_id" class="form-select">
+                            <option value="">按当前策略绑定执行</option>
+                            {% for template in templates %}
+                            <option value="{{ template.id }}" data-account-ids="{{ template_account_scope.get(template.id, '') }}">
+                                {{ template.template_name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">开始日期</label>
+                        <input type="date" name="start_date" class="form-control" value="{{ default_start }}" required>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">结束日期</label>
+                        <input type="date" name="end_date" class="form-control" value="{{ default_end }}" required>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">初始资金</label>
+                        <input type="number" name="initial_capital" class="form-control" min="1000" step="1000" value="100000" required>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">费率</label>
+                        <input type="number" name="fee_rate" class="form-control" min="0" max="0.1" step="0.0001" value="0.001" required>
+                    </div>
+                    <div class="col-12">
+                        <div class="small text-muted">
+                            说明：留空产品时会对所选账户下的全部活跃策略绑定做账户级回放；选了模板则只回放该模板对应的绑定。回测会额外校验约 250 个交易日预热，建议先在产品页抓取至少 5 年历史行情。
+                        </div>
+                    </div>
+                    <div class="col-12 d-grid">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-play-fill"></i> 运行回测
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-clock-history"></i> 回测记录</div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>名称</th>
+                                <th>区间</th>
+                                <th>模板</th>
+                                <th>状态</th>
+                                <th>创建时间</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for run in runs %}
+                            <tr>
+                                <td>
+                                    <div class="fw-semibold">{{ run.run_name }}</div>
+                                    <div class="small text-muted">Run #{{ run.id }}</div>
+                                </td>
+                                <td>{{ run.start_date }} ~ {{ run.end_date }}</td>
+                                <td>{{ run.template.template_name if run.template else '多模板 / 账户级' }}</td>
+                                <td>
+                                    <span class="badge bg-{{ 'success' if run.status == 'completed' else 'danger' if run.status == 'failed' else 'warning text-dark' }}">
+                                        {{ run.status }}
+                                    </span>
+                                </td>
+                                <td>{{ run.created_at.strftime('%Y-%m-%d %H:%M') if run.created_at else '-' }}</td>
+                                <td class="text-end">
+                                    <a href="{{ url_for('backtests.detail', run_id=run.id) }}" class="btn btn-sm btn-outline-primary">
+                                        <i class="bi bi-search"></i> 查看
+                                    </a>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="6" class="text-center text-muted py-4">暂无回测记录</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+    const form = document.querySelector('form[action="{{ url_for("backtests.create_run") }}"]');
+    if (!form) {
+        return;
+    }
+
+    const accountSelect = form.querySelector('select[name="account_id"]');
+    const instrumentSelect = form.querySelector('select[name="instrument_id"]');
+    const templateSelect = form.querySelector('select[name="template_id"]');
+
+    function syncOptions(select) {
+        const accountId = accountSelect.value;
+        const options = Array.from(select.options).slice(1);
+        let hasSelectedVisibleOption = false;
+
+        options.forEach((option) => {
+            const accountIds = (option.dataset.accountIds || '')
+                .split(',')
+                .map((value) => value.trim())
+                .filter(Boolean);
+            const isVisible = !accountId || accountIds.length === 0 || accountIds.includes(accountId);
+
+            option.hidden = !isVisible;
+            option.disabled = !isVisible;
+
+            if (option.selected && isVisible) {
+                hasSelectedVisibleOption = true;
+            }
+        });
+
+        if (!hasSelectedVisibleOption) {
+            select.value = '';
+        }
+    }
+
+    function applyAccountScope() {
+        syncOptions(instrumentSelect);
+        syncOptions(templateSelect);
+    }
+
+    accountSelect.addEventListener('change', applyAccountScope);
+    applyAccountScope();
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,285 @@
+{% extends "base.html" %}
+{% block title %}回测详情{% endblock %}
+{% block page_title %}<h6 class="mb-0"><i class="bi bi-activity"></i> 回测详情</h6>{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+    <div>
+        <h4 class="mb-1">{{ run.run_name }}</h4>
+        <div class="text-muted small">
+            {{ run.start_date }} ~ {{ run.end_date }}
+            <span class="badge bg-{{ 'success' if run.status == 'completed' else 'danger' if run.status == 'failed' else 'warning text-dark' }} ms-2">{{ run.status }}</span>
+        </div>
+    </div>
+    <a href="{{ url_for('backtests.list_runs') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> 返回回测列表
+    </a>
+</div>
+
+{% if result.error %}
+<div class="alert alert-danger">
+    <i class="bi bi-exclamation-triangle"></i> 回测失败：{{ result.error }}
+</div>
+{% endif %}
+
+{% if result.history_coverage and result.history_coverage.has_warnings %}
+<div class="alert alert-warning">
+    <i class="bi bi-exclamation-circle"></i>
+    部分产品历史数据不足。当前回测按起始日前约 {{ result.history_coverage.warmup_trading_days }} 个交易日作为预热标准校验，
+    共有 {{ result.history_coverage.warning_count }} 个产品未满足，结果可用于流程验证，但不适合作为严肃参数评估。
+</div>
+{% endif %}
+
+<div class="row g-4 mb-4">
+    <div class="col-lg-4">
+        <div class="card h-100">
+            <div class="card-header"><i class="bi bi-sliders"></i> 参数</div>
+            <div class="card-body">
+                <table class="table table-sm mb-0">
+                    <tr><th style="width: 110px;">账户</th><td>{{ params.account_name or scope.account_name or '-' }}</td></tr>
+                    <tr><th>账户类型</th><td>{{ params.account_type or scope.account_type or '-' }}</td></tr>
+                    <tr><th>初始资金</th><td>{{ format_currency(params.initial_capital or 0) }}</td></tr>
+                    <tr><th>费率</th><td>{{ format_pct(params.fee_rate or 0) }}</td></tr>
+                    <tr><th>预热期</th><td>{{ params.warmup_trading_days or 250 }} 个交易日</td></tr>
+                    <tr><th>模板</th><td>{{ scope.template_names|join('、') if scope.template_names else (run.template.template_name if run.template else '-') }}</td></tr>
+                    <tr>
+                        <th>产品范围</th>
+                        <td>
+                            {% if scope.instruments %}
+                                {{ scope.instruments|length }} 个
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-8">
+        <div class="row g-3">
+            <div class="col-md-4">
+                <div class="card stat-card h-100">
+                    <div class="card-body">
+                        <div class="text-muted small">总收益率</div>
+                        <div class="h4 mb-0 {{ 'text-success' if (summary.total_return or 0) >= 0 else 'text-danger' }}">
+                            {{ format_pct(summary.total_return or 0) }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card stat-card h-100">
+                    <div class="card-body">
+                        <div class="text-muted small">年化收益率</div>
+                        <div class="h4 mb-0 {{ 'text-success' if (summary.annualized_return or 0) >= 0 else 'text-danger' }}">
+                            {{ format_pct(summary.annualized_return or 0) }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card stat-card h-100">
+                    <div class="card-body">
+                        <div class="text-muted small">最大回撤</div>
+                        <div class="h4 mb-0 {{ 'text-danger' if (summary.max_drawdown or 0) < 0 else '' }}">
+                            {{ format_pct(summary.max_drawdown or 0) }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card stat-card h-100">
+                    <div class="card-body">
+                        <div class="text-muted small">期末净值</div>
+                        <div class="h5 mb-0">{{ format_currency(summary.final_equity or 0) }}</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card stat-card h-100">
+                    <div class="card-body">
+                        <div class="text-muted small">交易次数</div>
+                        <div class="h5 mb-0">{{ summary.trade_count or 0 }}</div>
+                        <div class="small text-muted">买入 {{ summary.buy_count or 0 }} / 卖出 {{ summary.sell_count or 0 }}</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card stat-card h-100">
+                    <div class="card-body">
+                        <div class="text-muted small">胜率</div>
+                        <div class="h5 mb-0">{{ format_pct(summary.win_rate or 0) }}</div>
+                        <div class="small text-muted">基准 {{ format_pct(summary.benchmark_return or 0) }}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if result.history_coverage %}
+<div class="card mb-4">
+    <div class="card-header"><i class="bi bi-database-check"></i> 历史数据覆盖</div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm mb-0">
+                <thead>
+                    <tr>
+                        <th>产品</th>
+                        <th>首末日期</th>
+                        <th>预热天数</th>
+                        <th>回测区间天数</th>
+                        <th>状态</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in result.history_coverage.coverage %}
+                    <tr>
+                        <td>{{ item.symbol }} - {{ item.name }}</td>
+                        <td>{{ item.first_trade_date or '-' }} ~ {{ item.last_trade_date or '-' }}</td>
+                        <td>{{ item.warmup_days }}</td>
+                        <td>{{ item.backtest_days }}</td>
+                        <td>
+                            {% if item.warning %}
+                            <span class="badge bg-warning text-dark">数据不足</span>
+                            {% else %}
+                            <span class="badge bg-success">充足</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="row g-4 mb-4">
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header"><i class="bi bi-graph-up"></i> 净值轨迹摘要</div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm mb-0">
+                        <thead>
+                            <tr>
+                                <th>日期</th>
+                                <th>净值</th>
+                                <th>现金</th>
+                                <th>持仓市值</th>
+                                <th>回撤</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for point in equity_curve[-20:] %}
+                            <tr>
+                                <td>{{ point.date }}</td>
+                                <td>{{ format_currency(point.equity) }}</td>
+                                <td>{{ format_currency(point.cash) }}</td>
+                                <td>{{ format_currency(point.position_value) }}</td>
+                                <td class="{{ 'text-danger' if point.drawdown < 0 else '' }}">{{ format_pct(point.drawdown) }}</td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="5" class="text-center text-muted py-4">暂无净值曲线</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header"><i class="bi bi-pie-chart"></i> 期末持仓</div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm mb-0">
+                        <thead>
+                            <tr>
+                                <th>产品</th>
+                                <th>份额</th>
+                                <th>市值</th>
+                                <th>权重</th>
+                                <th>浮盈亏</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for position in positions %}
+                            <tr>
+                                <td>{{ position.symbol }} - {{ position.name }}</td>
+                                <td>{{ format_number(position.quantity) }}</td>
+                                <td>{{ format_currency(position.market_value) }}</td>
+                                <td>{{ format_pct(position.weight) }}</td>
+                                <td class="{{ 'text-success' if position.unrealized_pnl_pct >= 0 else 'text-danger' }}">
+                                    {{ format_pct(position.unrealized_pnl_pct) }}
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="5" class="text-center text-muted py-4">期末无持仓</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header"><i class="bi bi-list-check"></i> 交易明细</div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover table-sm mb-0">
+                <thead>
+                    <tr>
+                        <th>日期</th>
+                        <th>产品</th>
+                        <th>动作</th>
+                        <th>信号</th>
+                        <th>价格</th>
+                        <th>金额</th>
+                        <th>份额</th>
+                        <th>手续费</th>
+                        <th>已实现盈亏</th>
+                        <th>现金余额</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for trade in trades %}
+                    <tr>
+                        <td>{{ trade.date }}</td>
+                        <td>{{ trade.symbol }} - {{ trade.name }}</td>
+                        <td>
+                            <span class="badge bg-{{ 'success' if trade.action == 'buy' else 'danger' }}">
+                                {{ '买入' if trade.action == 'buy' else '卖出' }}
+                            </span>
+                        </td>
+                        <td><code>{{ trade.reason_code }}</code></td>
+                        <td>{{ format_number(trade.price) }}</td>
+                        <td>{{ format_currency(trade.amount) }}</td>
+                        <td>{{ format_number(trade.quantity) }}</td>
+                        <td>{{ format_currency(trade.fee) }}</td>
+                        <td class="{{ 'text-success' if trade.realized_pnl >= 0 else 'text-danger' }}">
+                            {{ format_currency(trade.realized_pnl) }}
+                        </td>
+                        <td>{{ format_currency(trade.cash_after) }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="10" class="text-center text-muted py-4">暂无成交记录</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -19,6 +19,8 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_HISTORY_DAYS = 365 * 5
+
 # 请求头，模拟浏览器
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -400,7 +402,7 @@ class FundDataFetcher:
         try:
             import akshare as ak
             if not start_date:
-                start_date = (datetime.now() - timedelta(days=365)).strftime("%Y%m%d")
+                start_date = (datetime.now() - timedelta(days=DEFAULT_HISTORY_DAYS)).strftime("%Y%m%d")
             if not end_date:
                 end_date = datetime.now().strftime("%Y%m%d")
 
@@ -554,7 +556,7 @@ class FundDataFetcher:
         return summary
 
     @staticmethod
-    def fetch_and_import_history(instrument_id: int, days: int = 365) -> dict:
+    def fetch_and_import_history(instrument_id: int, days: int = DEFAULT_HISTORY_DAYS) -> dict:
         """
         抓取历史数据并写入 market_data 表
 
@@ -636,6 +638,7 @@ class FundDataFetcher:
 
         result = {
             "symbol": symbol,
+            "days_requested": days,
             "imported": imported,
             "skipped": skipped,
         }
