@@ -338,8 +338,8 @@ class SignalService:
 
         决策依据：
         1. MA20 / MA60 趋势确认
-        2. 买入后收益率 → 止损/止盈
-        3. 持仓高点回撤
+        2. 买入后收益率 → 分层止损 / 分层止盈
+        3. 盈利保护与趋势破坏退出
         """
         latest_md = MarketData.query.filter_by(
             instrument_id=instrument.id
@@ -362,6 +362,7 @@ class SignalService:
         price = latest_md.close or latest_md.nav or 0
         ma20 = latest_md.ma20 or 0
         ma60 = latest_md.ma60 or 0
+        rs20d = latest_md.relative_strength_20d or 0
 
         # 获取持仓
         position = Position.query.filter_by(
@@ -376,16 +377,33 @@ class SignalService:
         custom_config = json.loads(assignment.custom_config_json) if assignment.custom_config_json else {}
         config.update(custom_config)
 
+        stop_loss_warn_pct = config.get("stop_loss_warn_pct", -0.05)
+        stop_loss_warn_reduce_ratio = config.get("stop_loss_warn_reduce_ratio", 0.25)
         stop_loss_pct = config.get("stop_loss_pct", -0.08)
-        take_profit_pct_1 = config.get("take_profit_pct_1", 0.15)
-        add_confirm_pct = config.get("add_confirm_pct", 0.04)
+        stop_loss_reduce_ratio = config.get("stop_loss_reduce_ratio", 0.50)
+        stop_loss_clear_pct = config.get("stop_loss_clear_pct", -0.10)
+        early_exit_pct = config.get("early_exit_pct", -0.06)
+        profit_protect_trigger_pct = config.get("profit_protect_trigger_pct", 0.09)
+        profit_protect_reduce_ratio = config.get("profit_protect_reduce_ratio", 0.20)
+        take_profit_pct_1 = config.get("take_profit_pct_1", 0.12)
+        take_profit_pct_2 = config.get("take_profit_pct_2", 0.18)
+        take_profit_pct_3 = config.get("take_profit_pct_3", 0.25)
+        take_profit_sell_ratio_1 = config.get("take_profit_sell_ratio_1", 0.20)
+        take_profit_sell_ratio_2 = config.get("take_profit_sell_ratio_2", 0.30)
+        take_profit_sell_ratio_3 = config.get("take_profit_sell_ratio_3", 0.30)
+        add_confirm_pct = config.get("add_confirm_pct", 0.05)
+        add_position_pct = config.get("add_position_pct", 0.30)
+        entry_rs_threshold = config.get("entry_rs_threshold", 0.00)
+
+        price_below_ma20 = price > 0 and ma20 > 0 and price < ma20
+        trend_broken = price_below_ma20 and ma20 > 0 and ma60 > 0 and ma20 < ma60
 
         if position and position.quantity > 0:
             # === 已持仓 ===
             pnl_pct = position.unrealized_pnl_pct or 0
 
-            # 止损判断（PRD §11.3：回撤 8% 先减半，10% 清仓）
-            if pnl_pct <= -0.10:
+            # 止损判断：预警减仓 -> 半仓防守 -> 强制清仓
+            if pnl_pct <= stop_loss_clear_pct:
                 return Signal(
                     signal_date=signal_date,
                     account_id=account.id,
@@ -393,7 +411,21 @@ class SignalService:
                     signal_type=SignalType.STOP_LOSS.value,
                     priority=1,
                     reason_code="tactical_stop_loss",
-                    explanation=f"⚠️ 止损！亏损 {pnl_pct:.1%}，超过 -10% 阈值，建议清仓",
+                    explanation=f"强制止损：亏损 {pnl_pct:.1%}，跌破 {stop_loss_clear_pct:.0%} 阈值，建议清仓",
+                    risk_flag="high",
+                    status=SignalStatus.PENDING.value,
+                    batch_id=batch_id,
+                    batch_version=batch_version,
+                )
+            elif pnl_pct <= early_exit_pct and trend_broken:
+                return Signal(
+                    signal_date=signal_date,
+                    account_id=account.id,
+                    instrument_id=instrument.id,
+                    signal_type=SignalType.STOP_LOSS.value,
+                    priority=1,
+                    reason_code="tactical_early_exit",
+                    explanation=f"抢跑止损：亏损 {pnl_pct:.1%}，且 price < MA20 < MA60，趋势结构破坏，建议提前清仓",
                     risk_flag="high",
                     status=SignalStatus.PENDING.value,
                     batch_id=batch_id,
@@ -406,24 +438,63 @@ class SignalService:
                     instrument_id=instrument.id,
                     signal_type=SignalType.REDUCE.value,
                     priority=2,
-                    reason_code="tactical_reduce",
-                    explanation=f"预警减仓：亏损 {pnl_pct:.1%}，接近止损线 {stop_loss_pct:.0%}，建议减半仓",
+                    reason_code="tactical_reduce_major",
+                    explanation=(
+                        f"二级止损：亏损 {pnl_pct:.1%}，跌破 {stop_loss_pct:.0%} 阈值，"
+                        f"建议减仓 {stop_loss_reduce_ratio:.0%}"
+                    ),
+                    risk_flag="medium",
+                    status=SignalStatus.PENDING.value,
+                    batch_id=batch_id,
+                    batch_version=batch_version,
+                )
+            elif pnl_pct <= stop_loss_warn_pct and price_below_ma20:
+                return Signal(
+                    signal_date=signal_date,
+                    account_id=account.id,
+                    instrument_id=instrument.id,
+                    signal_type=SignalType.REDUCE.value,
+                    priority=3,
+                    reason_code="tactical_reduce_warn",
+                    explanation=(
+                        f"一级止损预警：亏损 {pnl_pct:.1%}，且价格跌破 MA20，"
+                        f"建议先减仓 {stop_loss_warn_reduce_ratio:.0%}"
+                    ),
                     risk_flag="medium",
                     status=SignalStatus.PENDING.value,
                     batch_id=batch_id,
                     batch_version=batch_version,
                 )
 
-            # 止盈（PRD §11.3：15% 止盈1/3，25% 再止盈1/3）
-            if pnl_pct >= 0.25:
+            # 止盈：分三级兑现利润
+            if pnl_pct >= take_profit_pct_3:
                 return Signal(
                     signal_date=signal_date,
                     account_id=account.id,
                     instrument_id=instrument.id,
                     signal_type=SignalType.TAKE_PROFIT.value,
                     priority=2,
+                    reason_code="tactical_take_profit_3",
+                    explanation=(
+                        f"三级止盈：盈利 {pnl_pct:.1%}，超过 {take_profit_pct_3:.0%}，"
+                        f"建议止盈 {take_profit_sell_ratio_3:.0%}"
+                    ),
+                    status=SignalStatus.PENDING.value,
+                    batch_id=batch_id,
+                    batch_version=batch_version,
+                )
+            elif pnl_pct >= take_profit_pct_2:
+                return Signal(
+                    signal_date=signal_date,
+                    account_id=account.id,
+                    instrument_id=instrument.id,
+                    signal_type=SignalType.TAKE_PROFIT.value,
+                    priority=3,
                     reason_code="tactical_take_profit_2",
-                    explanation=f"二级止盈：盈利 {pnl_pct:.1%}，超 25%，建议再止盈 1/3",
+                    explanation=(
+                        f"二级止盈：盈利 {pnl_pct:.1%}，超过 {take_profit_pct_2:.0%}，"
+                        f"建议止盈 {take_profit_sell_ratio_2:.0%}"
+                    ),
                     status=SignalStatus.PENDING.value,
                     batch_id=batch_id,
                     batch_version=batch_version,
@@ -434,25 +505,49 @@ class SignalService:
                     account_id=account.id,
                     instrument_id=instrument.id,
                     signal_type=SignalType.TAKE_PROFIT.value,
-                    priority=3,
+                    priority=4,
                     reason_code="tactical_take_profit_1",
-                    explanation=f"一级止盈：盈利 {pnl_pct:.1%}，超 15%，建议止盈 1/3",
+                    explanation=(
+                        f"一级止盈：盈利 {pnl_pct:.1%}，超过 {take_profit_pct_1:.0%}，"
+                        f"建议止盈 {take_profit_sell_ratio_1:.0%}"
+                    ),
                     status=SignalStatus.PENDING.value,
                     batch_id=batch_id,
                     batch_version=batch_version,
                 )
 
-            # 确认加仓（PRD §11.3：盈利 4-5% 后可加满计划仓）
+            # 盈利保护：盈利已形成，但趋势转弱时先锁部分利润
+            if pnl_pct >= profit_protect_trigger_pct and price_below_ma20:
+                return Signal(
+                    signal_date=signal_date,
+                    account_id=account.id,
+                    instrument_id=instrument.id,
+                    signal_type=SignalType.REDUCE.value,
+                    priority=4,
+                    reason_code="tactical_profit_protect",
+                    explanation=(
+                        f"盈利保护：当前盈利 {pnl_pct:.1%}，但价格跌破 MA20，"
+                        f"建议减仓 {profit_protect_reduce_ratio:.0%} 锁定利润"
+                    ),
+                    status=SignalStatus.PENDING.value,
+                    batch_id=batch_id,
+                    batch_version=batch_version,
+                )
+
+            # 确认加仓：只对盈利单、且趋势仍然完好的仓位加仓
             if add_confirm_pct <= pnl_pct < take_profit_pct_1:
-                if price > ma20 > 0:
+                if price > ma20 > 0 and (ma60 <= 0 or ma20 >= ma60):
                     return Signal(
                         signal_date=signal_date,
                         account_id=account.id,
                         instrument_id=instrument.id,
                         signal_type=SignalType.ALLOW_ADD.value,
-                        priority=4,
+                        priority=5,
                         reason_code="tactical_confirm_add",
-                        explanation=f"确认加仓：盈利 {pnl_pct:.1%}，价格在 MA20 上方，可加满计划仓",
+                        explanation=(
+                            f"确认加仓：盈利 {pnl_pct:.1%}，价格维持在 MA20 上方，"
+                            f"可追加约 {add_position_pct:.0%} 计划仓位"
+                        ),
                         status=SignalStatus.PENDING.value,
                         batch_id=batch_id,
                         batch_version=batch_version,
@@ -464,9 +559,9 @@ class SignalService:
                 account_id=account.id,
                 instrument_id=instrument.id,
                 signal_type=SignalType.HOLD.value,
-                priority=5,
+                priority=6,
                 reason_code="tactical_hold",
-                explanation=f"持有观察：盈亏 {pnl_pct:.1%}",
+                explanation=f"持有观察：盈亏 {pnl_pct:.1%}，趋势未触发新的止损或止盈动作",
                 status=SignalStatus.PENDING.value,
                 batch_id=batch_id,
                 batch_version=batch_version,
@@ -474,11 +569,10 @@ class SignalService:
 
         else:
             # === 未持仓 ===
-            # 趋势确认买入（PRD §11.3：站上 MA20 且 MA20 向上时可试错）
+            # 趋势确认买入：站上 MA20，且 MA20 > MA60，并要求相对强弱转正
             if price > 0 and ma20 > 0 and price > ma20:
-                # 检查 MA20 是否向上（简单判断：MA20 > MA60）
                 ma20_up = ma20 > ma60 if ma60 > 0 else True
-                if ma20_up:
+                if ma20_up and rs20d >= entry_rs_threshold:
                     return Signal(
                         signal_date=signal_date,
                         account_id=account.id,
@@ -486,7 +580,10 @@ class SignalService:
                         signal_type=SignalType.ALLOW_BUY.value,
                         priority=3,
                         reason_code="tactical_trend_buy",
-                        explanation=f"趋势确认：价格 {price:.3f} > MA20 {ma20:.3f}，MA20 向上，可试探买入",
+                        explanation=(
+                            f"趋势确认：价格 {price:.3f} > MA20 {ma20:.3f}，MA20 上穿并走强，"
+                            f"20日相对强弱 {rs20d:.1%}，可试探建立底仓"
+                        ),
                         status=SignalStatus.PENDING.value,
                         batch_id=batch_id,
                         batch_version=batch_version,
@@ -500,7 +597,7 @@ class SignalService:
                 signal_type=SignalType.OBSERVE.value,
                 priority=8,
                 reason_code="tactical_observe",
-                explanation=f"观察等待：价格 {price:.3f}，MA20 {ma20:.3f}，趋势未确认",
+                explanation=f"观察等待：价格 {price:.3f}，MA20 {ma20:.3f}，MA60 {ma60:.3f}，趋势未确认",
                 status=SignalStatus.PENDING.value,
                 batch_id=batch_id,
                 batch_version=batch_version,
@@ -591,4 +688,3 @@ class SignalService:
             ],
             "notes": "调仓建议功能开发中，后续将提供详细的分步调仓方案。",
         }
-
