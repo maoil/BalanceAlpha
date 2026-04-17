@@ -171,10 +171,16 @@ def _auto_seed(db) -> None:
     - 5 个策略模板
     """
     from app.models.account import Account
-    from app.models.strategy_template import build_default_strategy_templates
+    from app.models.strategy_template import upsert_default_strategy_templates
 
     # 如果已有账户，跳过
     if Account.query.count() > 0:
+        created_count, updated_count = upsert_default_strategy_templates(db.session)
+        logging.info(
+            "策略模板同步完成: 新增%s个, 更新%s个",
+            created_count,
+            updated_count,
+        )
         return
 
     logging.info("首次启动，自动创建种子数据...")
@@ -199,9 +205,9 @@ def _auto_seed(db) -> None:
     db.session.add_all(accounts)
     db.session.commit()
 
-    # 创建策略模板
-    templates = build_default_strategy_templates()
-    db.session.add_all(templates)
-    db.session.commit()
-
-    logging.info("种子数据创建完成: 2个账户, %s个策略模板", len(templates))
+    created_count, updated_count = upsert_default_strategy_templates(db.session)
+    logging.info(
+        "种子数据创建完成: 2个账户, 策略模板新增%s个, 更新%s个",
+        created_count,
+        updated_count,
+    )

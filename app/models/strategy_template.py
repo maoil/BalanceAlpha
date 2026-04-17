@@ -179,6 +179,49 @@ def build_default_strategy_templates() -> list[StrategyTemplate]:
     return templates
 
 
+def upsert_default_strategy_templates(session) -> tuple[int, int]:
+    """
+    将默认策略模板同步到数据库。
+
+    Returns:
+        (created_count, updated_count)
+    """
+    created_count = 0
+    updated_count = 0
+
+    for spec in get_strategy_template_seed_specs():
+        config_json = json.dumps(spec["config"], ensure_ascii=False)
+        template = StrategyTemplate.query.filter_by(
+            template_code=spec["template_code"]
+        ).first()
+
+        if template is None:
+            session.add(
+                StrategyTemplate(
+                    template_code=spec["template_code"],
+                    template_name=spec["template_name"],
+                    account_type=spec["account_type"],
+                    description=spec["description"],
+                    config_json=config_json,
+                    version=spec["version"],
+                    status=spec["status"],
+                )
+            )
+            created_count += 1
+            continue
+
+        template.template_name = spec["template_name"]
+        template.account_type = spec["account_type"]
+        template.description = spec["description"]
+        template.config_json = config_json
+        template.version = spec["version"]
+        template.status = spec["status"]
+        updated_count += 1
+
+    session.commit()
+    return created_count, updated_count
+
+
 def is_gold_instrument_name(name: str) -> bool:
     """判断产品名称是否属于黄金类资产。"""
     normalized_name = (name or "").strip()
