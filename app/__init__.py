@@ -168,11 +168,10 @@ def _auto_seed(db) -> None:
 
     如果数据库中没有账户数据，自动创建：
     - 2 个逻辑账户（核心配置 + 战术轮动）
-    - 4 个策略模板
+    - 5 个策略模板
     """
-    import json
     from app.models.account import Account
-    from app.models.strategy_template import StrategyTemplate
+    from app.models.strategy_template import build_default_strategy_templates
 
     # 如果已有账户，跳过
     if Account.query.count() > 0:
@@ -201,73 +200,8 @@ def _auto_seed(db) -> None:
     db.session.commit()
 
     # 创建策略模板
-    templates = [
-        StrategyTemplate(
-            template_code="core_index_template",
-            template_name="核心宽基指数策略",
-            account_type="core",
-            description="适用于标普500、纳指100等宽基指数基金/ETF",
-            config_json=json.dumps({
-                "target_weight_lower": 0.15,
-                "target_weight_upper": 0.30,
-                "rebalance_threshold": 0.20,
-                "score_threshold_buy": 70,
-                "score_threshold_hold": 55,
-                "dca_allowed": True,
-            }, ensure_ascii=False),
-            version="1.0",
-            status="active",
-        ),
-        StrategyTemplate(
-            template_code="core_active_fund_template",
-            template_name="核心主动基金策略",
-            account_type="core",
-            description="适用于全球成长型主动管理基金",
-            config_json=json.dumps({
-                "target_weight_lower": 0.10,
-                "target_weight_upper": 0.25,
-                "rebalance_threshold": 0.20,
-                "dca_allowed": True,
-                "dca_frequency": "monthly",
-            }, ensure_ascii=False),
-            version="1.0",
-            status="active",
-        ),
-        StrategyTemplate(
-            template_code="gold_hedge_template",
-            template_name="黄金对冲策略",
-            account_type="core",
-            description="适用于黄金ETF，作为组合平衡器",
-            config_json=json.dumps({
-                "target_weight_lower": 0.05,
-                "target_weight_upper": 0.15,
-                "rebalance_threshold": 0.20,
-                "allow_active_add": False,
-            }, ensure_ascii=False),
-            version="1.0",
-            status="active",
-        ),
-        StrategyTemplate(
-            template_code="tactical_theme_template",
-            template_name="战术主题轮动策略",
-            account_type="tactical",
-            description="适用于AI、软件、半导体等主题资产",
-            config_json=json.dumps({
-                "ma_short": 20,
-                "ma_long": 60,
-                "initial_position_pct": 0.30,
-                "add_confirm_pct": 0.04,
-                "stop_loss_pct": -0.08,
-                "stop_loss_clear_pct": -0.10,
-                "take_profit_pct_1": 0.15,
-                "take_profit_pct_2": 0.25,
-                "trailing_stop_pct": -0.08,
-            }, ensure_ascii=False),
-            version="1.0",
-            status="active",
-        ),
-    ]
+    templates = build_default_strategy_templates()
     db.session.add_all(templates)
     db.session.commit()
 
-    logging.info("种子数据创建完成: 2个账户, 4个策略模板")
+    logging.info("种子数据创建完成: 2个账户, %s个策略模板", len(templates))

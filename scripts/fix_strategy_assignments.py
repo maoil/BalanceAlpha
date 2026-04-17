@@ -2,8 +2,9 @@
 修复策略绑定：为所有缺少 strategy_assignment 的活跃产品自动创建绑定。
 
 产品 → 策略模板映射规则：
+  core + 黄金相关       → gold_hedge_template
+  core + 红利低波相关   → dividend_low_vol_template
   core + etf/lof       → core_index_template
-  core + fund(黄金相关) → gold_hedge_template
   core + fund(其他)    → core_active_fund_template
   tactical + *         → tactical_theme_template
 
@@ -12,6 +13,14 @@
 import sqlite3
 import sys
 from datetime import datetime
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from app.models.strategy_template import (
+    get_default_assignment_range,
+    infer_core_template_code,
+)
 
 DB_PATH = r"c:\Users\guangxin.yang\PycharmProjects\BalanceAlpha\data\balancealpha.db"
 
@@ -60,18 +69,18 @@ def main():
             continue
 
         # 自动选择策略模板
-        template_code = _match_template(
-            inst["instrument_type"],
-            account_type,
-            inst["name"],
-        )
+        template_code = _match_template(inst["instrument_type"], account_type, inst["name"])
         template_info = templates.get(template_code)
         if not template_info:
             print(f"  [WARN] {inst['symbol']}: cannot find template '{template_code}'")
             continue
 
         # 设置默认权重区间
-        weight_lower, weight_upper = _default_weights(template_code, len(instruments))
+        weight_lower, weight_upper = _default_weights(
+            template_code,
+            symbol=inst["symbol"],
+            name=inst["name"],
+        )
 
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         c.execute(
@@ -114,31 +123,12 @@ def _match_template(instrument_type: str, account_type: str, name: str) -> str:
     """根据产品类型和账户类型自动匹配策略模板"""
     if account_type == "tactical":
         return "tactical_theme_template"
-
-    # 核心账户
-    if instrument_type in ("etf", "lof"):
-        # 检查是否是黄金 ETF
-        if "黄金" in name or "金" in name:
-            return "gold_hedge_template"
-        return "core_index_template"
-    
-    if instrument_type == "fund":
-        if "黄金" in name or "金" in name:
-            return "gold_hedge_template"
-        return "core_active_fund_template"
-
-    return "core_index_template"
+    return infer_core_template_code(instrument_type, name)
 
 
-def _default_weights(template_code: str, total_count: int) -> tuple:
-    """根据模板类型返回默认权重区间"""
-    weight_map = {
-        "core_index_template": (0.15, 0.30),
-        "core_active_fund_template": (0.10, 0.25),
-        "gold_hedge_template": (0.05, 0.15),
-        "tactical_theme_template": (0.10, 0.30),
-    }
-    return weight_map.get(template_code, (0.05, 0.20))
+def _default_weights(template_code: str, symbol: str, name: str) -> tuple:
+    """根据模板类型与产品信息返回默认权重区间。"""
+    return get_default_assignment_range(template_code, symbol=symbol, name=name)
 
 
 if __name__ == "__main__":

@@ -7,7 +7,11 @@ from typing import Optional
 from app.extensions import db
 from app.models.instrument import Instrument
 from app.models.strategy_assignment import StrategyAssignment
-from app.models.strategy_template import StrategyTemplate
+from app.models.strategy_template import (
+    StrategyTemplate,
+    get_default_assignment_range,
+    infer_core_template_code,
+)
 from app.models.account import Account
 from app.utils.constants import InstrumentStatus
 
@@ -100,11 +104,11 @@ class InstrumentService:
             if existing:
                 return
 
-            # 读取模板默认权重配置
-            import json
-            config = json.loads(template.config_json) if template.config_json else {}
-            default_lower = config.get("target_weight_lower", 0.0)
-            default_upper = config.get("target_weight_upper", 0.0)
+            default_lower, default_upper = get_default_assignment_range(
+                template.template_code,
+                symbol=instrument.symbol,
+                name=instrument.name,
+            )
 
             assignment = StrategyAssignment(
                 instrument_id=instrument.id,
@@ -123,16 +127,7 @@ class InstrumentService:
         """根据产品类型和账户类型自动推断最合适的策略模板"""
         if account_type == "tactical":
             return "tactical_theme_template"
-        # 核心账户
-        if instrument_type in ("etf", "lof"):
-            if "黄金" in name or "金" in name:
-                return "gold_hedge_template"
-            return "core_index_template"
-        if instrument_type == "fund":
-            if "黄金" in name or "金" in name:
-                return "gold_hedge_template"
-            return "core_active_fund_template"
-        return "core_index_template"
+        return infer_core_template_code(instrument_type, name)
 
     @staticmethod
     def update(instrument_id: int, data: dict) -> Optional[Instrument]:
