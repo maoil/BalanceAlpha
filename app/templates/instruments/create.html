@@ -32,6 +32,15 @@
                             <tbody id="searchResultBody"></tbody>
                         </table>
                     </div>
+                    <div id="fundMetricsPanel" class="card border-0 shadow-sm mt-3" style="display:none">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h6 class="mb-0"><i class="bi bi-graph-up"></i> 产品指标预览</h6>
+                                <small id="fundMetricsSource" class="text-muted"></small>
+                            </div>
+                            <div id="fundMetricsBody" class="small text-muted">正在加载...</div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -113,7 +122,132 @@
 
 {% block scripts %}
 <script>
-// 基金搜索
+function setTradeModeByType(type) {
+    if (type === 'etf' || type === 'lof') {
+        document.getElementById('tradeModeSelect').value = 'exchange_traded';
+    } else {
+        document.getElementById('tradeModeSelect').value = 'eod_nav';
+    }
+}
+
+function formatNumber(value, digits = 4) {
+    if (value === null || value === undefined || value === '') {
+        return '-';
+    }
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric.toFixed(digits) : '-';
+}
+
+function formatPercent(value, digits = 2, alreadyPercent = false) {
+    if (value === null || value === undefined || value === '') {
+        return '-';
+    }
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+        return '-';
+    }
+    const percent = alreadyPercent ? numeric : numeric * 100;
+    return `${percent.toFixed(digits)}%`;
+}
+
+function renderFundMetrics(data) {
+    const panel = document.getElementById('fundMetricsPanel');
+    const body = document.getElementById('fundMetricsBody');
+    const source = document.getElementById('fundMetricsSource');
+    const quote = data.quote || {};
+    const indicators = data.indicators || {};
+    const quoteLabel = data.trade_mode === 'exchange_traded' ? '最新价格' : '最新净值/估值';
+    const displayType = data.type || (data.instrument_type || '').toUpperCase() || '-';
+
+    body.innerHTML = `
+        <div class="row g-3">
+            <div class="col-md-6">
+                <div class="p-3 bg-light rounded h-100">
+                    <div class="fw-semibold mb-2">基础资料</div>
+                    <div>基金经理：${data.manager || '-'}</div>
+                    <div>基金公司：${data.company || '-'}</div>
+                    <div>产品类型：${displayType}</div>
+                    <div>交易方式：${data.trade_mode === 'exchange_traded' ? '场内交易' : '场外净值'}</div>
+                    <div>成立日期：${data.inception_date || '-'}</div>
+                    <div class="mt-2">业绩基准：${data.benchmark || '-'}</div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="p-3 bg-light rounded h-100">
+                    <div class="fw-semibold mb-2">最新快照</div>
+                    <div>${quoteLabel}：${formatNumber(quote.latest_price ?? data.latest_price)}</div>
+                    <div>参考净值：${formatNumber(quote.latest_nav ?? data.nav)}</div>
+                    <div>估算净值：${formatNumber(quote.estimated_nav ?? data.est_nav)}</div>
+                    <div>日内涨跌：${formatPercent(quote.change_pct ?? data.change_pct, 2, true)}</div>
+                    <div>报价日期：${quote.quote_date || data.quote_date || '-'}</div>
+                    <div>报价时间：${quote.quote_time || data.quote_time || '-'}</div>
+                </div>
+            </div>
+            <div class="col-md-12">
+                <div class="p-3 bg-light rounded">
+                    <div class="fw-semibold mb-2">技术指标</div>
+                    <div class="row g-2">
+                        <div class="col-md-3">MA20：${formatNumber(indicators.ma20)}</div>
+                        <div class="col-md-3">MA60：${formatNumber(indicators.ma60)}</div>
+                        <div class="col-md-3">MA120：${formatNumber(indicators.ma120)}</div>
+                        <div class="col-md-3">60日回撤：${formatPercent(indicators.drawdown_60d)}</div>
+                        <div class="col-md-3">相对MA20：${formatPercent(indicators.price_vs_ma20)}</div>
+                        <div class="col-md-3">相对MA60：${formatPercent(indicators.price_vs_ma60)}</div>
+                        <div class="col-md-3">相对MA120：${formatPercent(indicators.price_vs_ma120)}</div>
+                        <div class="col-md-3">20日强弱：${formatPercent(indicators.relative_strength_20d)}</div>
+                        <div class="col-md-3">近1月：${formatPercent(indicators.return_1m)}</div>
+                        <div class="col-md-3">近3月：${formatPercent(indicators.return_3m)}</div>
+                        <div class="col-md-3">近6月：${formatPercent(indicators.return_6m)}</div>
+                        <div class="col-md-3">近1年：${formatPercent(indicators.return_1y)}</div>
+                    </div>
+                    <div class="text-muted mt-2">
+                        最近数据：${indicators.latest_trade_date || '-'}，样本数：${indicators.data_points ?? '-'}
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    source.textContent = indicators.source || quote.source || '';
+    panel.style.display = 'block';
+}
+
+function loadFundInfo(code) {
+    const panel = document.getElementById('fundMetricsPanel');
+    const body = document.getElementById('fundMetricsBody');
+    const source = document.getElementById('fundMetricsSource');
+
+    panel.style.display = 'block';
+    source.textContent = '';
+    body.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span> 正在加载产品指标...';
+
+    fetch(`{{ url_for('instruments.get_fund_info', fund_code='__CODE__') }}`.replace('__CODE__', encodeURIComponent(code)))
+        .then(r => {
+            if (!r.ok) {
+                throw new Error('获取产品详情失败');
+            }
+            return r.json();
+        })
+        .then(data => {
+            if (data.short_name || data.name) {
+                document.getElementById('nameInput').value = data.short_name || data.name;
+            }
+            if (data.instrument_type) {
+                document.getElementById('typeSelect').value = data.instrument_type;
+            }
+            if (data.trade_mode) {
+                document.getElementById('tradeModeSelect').value = data.trade_mode;
+            } else {
+                setTradeModeByType(data.instrument_type || document.getElementById('typeSelect').value);
+            }
+            renderFundMetrics(data);
+        })
+        .catch(e => {
+            source.textContent = '';
+            body.innerHTML = `<span class="text-danger">${e.message}</span>`;
+        });
+}
+
 function searchFund() {
     const keyword = document.getElementById('fundSearchInput').value.trim();
     if (!keyword || keyword.length < 2) {
@@ -158,23 +292,15 @@ function searchFund() {
         });
 }
 
-// 选中基金后自动填充表单
 function selectFund(code, name, type) {
     document.getElementById('symbolInput').value = code;
     document.getElementById('nameInput').value = name;
     document.getElementById('typeSelect').value = type;
-
-    // 根据类型自动设置交易方式
-    if (type === 'etf' || type === 'lof') {
-        document.getElementById('tradeModeSelect').value = 'exchange_traded';
-    } else {
-        document.getElementById('tradeModeSelect').value = 'eod_nav';
-    }
-
+    setTradeModeByType(type);
     document.getElementById('searchResults').style.display = 'none';
+    loadFundInfo(code);
 }
 
-// 回车搜索
 document.getElementById('fundSearchInput').addEventListener('keypress', function(e) {
     if (e.key === 'Enter') { e.preventDefault(); searchFund(); }
 });

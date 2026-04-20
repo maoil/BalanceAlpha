@@ -20,6 +20,7 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 DEFAULT_HISTORY_DAYS = 365 * 5
+INDICATOR_LOOKBACK_DAYS = 400
 
 # 请求头，模拟浏览器
 HEADERS = {
@@ -117,6 +118,219 @@ class FundDataFetcher:
             return []
 
     @staticmethod
+    def _get_basic_fund_info(fund_code: str) -> dict:
+        """使用 akshare 拉取基金基础信息。"""
+        try:
+            import akshare as ak
+
+            info_df = ak.fund_individual_basic_info_xq(symbol=fund_code)
+            info = {}
+            if info_df is not None and len(info_df) > 0:
+                for _, row in info_df.iterrows():
+                    key = str(row.iloc[0]).strip()
+                    val = str(row.iloc[1]).strip()
+                    if key:
+                        info[key] = val
+            return info
+        except Exception as e:
+            logger.warning(f"akshare 获取基金信息失败: {e}")
+            return {}
+
+    @staticmethod
+    def _infer_instrument_type(name: str = "", fund_type: str = "") -> str:
+        """根据名称和基金类型推断产品类型。"""
+        normalized = f"{name} {fund_type}".upper()
+        if "联接" in (name or ""):
+            return "fund"
+        if "LOF" in normalized:
+            return "lof"
+        if "ETF" in normalized:
+            return "etf"
+        return "fund"
+
+    @staticmethod
+    def _infer_trade_mode(instrument_type: str) -> str:
+        return "exchange_traded" if instrument_type in {"etf", "lof"} else "eod_nav"
+
+    @staticmethod
+    def _to_float(value: object) -> Optional[float]:
+        if value in (None, ""):
+            return None
+        if isinstance(value, str):
+            value = value.replace("%", "").replace(",", "").strip()
+            if not value or value in {"--", "None", "nan"}:
+                return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _round_metric(value: object, digits: int = 4) -> Optional[float]:
+        numeric = FundDataFetcher._to_float(value)
+        if numeric is None or pd.isna(numeric):
+            return None
+        return round(float(numeric), digits)
+
+    @staticmethod
+    def _calc_period_return(prices: pd.Series, periods: int) -> Optional[float]:
+        if len(prices) <= periods:
+            return None
+
+        latest_price = FundDataFetcher._to_float(prices.iloc[-1])
+        base_price = FundDataFetcher._to_float(prices.iloc[-periods - 1])
+        if latest_price is None or base_price is None or base_price <= 0:
+            return None
+        return (latest_price / base_price) - 1
+
+    @staticmethod
+    def _calc_price_distance(price: object, average: object) -> Optional[float]:
+        latest_price = FundDataFetcher._to_float(price)
+        average_price = FundDataFetcher._to_float(average)
+        if latest_price is None or average_price is None or average_price <= 0:
+            return None
+        return (latest_price / average_price) - 1
+
+    @staticmethod
+    def _build_quote_snapshot(fund_code: str, trade_mode: str) -> dict:
+        """统一聚合场内价格和场外净值快照。"""
+        if trade_mode == "exchange_traded":
+            etf_quote = FundDataFetcher.get_etf_realtime_price(fund_code)
+            latest_price = FundDataFetcher._to_float((etf_quote or {}).get("price"))
+            if latest_price is not None and latest_price > 0:
+                prev_close = FundDataFetcher._to_float(etf_quote.get("prev_close"))
+                change_pct = None
+                if prev_close is not None and prev_close > 0:
+                    change_pct = (latest_price / prev_close - 1) * 100
+
+                return {
+                    "source": "sina_etf",
+                    "latest_price": FundDataFetcher._round_metric(latest_price),
+                    "latest_nav": None,
+                    "estimated_nav": None,
+                    "prev_close": FundDataFetcher._round_metric(prev_close),
+                    "change_pct": FundDataFetcher._round_metric(change_pct, 2),
+                    "quote_date": etf_quote.get("date", ""),
+                    "quote_time": etf_quote.get("time", ""),
+                }
+
+        nav_quote = FundDataFetcher.get_realtime_nav(fund_code)
+        nav = FundDataFetcher._to_float((nav_quote or {}).get("nav"))
+        if nav is None or nav <= 0:
+            return {}
+
+        est_nav = FundDataFetcher._to_float(nav_quote.get("est_nav"))
+        change_pct = FundDataFetcher._to_float(nav_quote.get("est_change_pct"))
+        latest_price = est_nav if est_nav is not None and est_nav > 0 else nav
+
+        return {
+            "source": "eastmoney_nav",
+            "latest_price": FundDataFetcher._round_metric(latest_price),
+            "latest_nav": FundDataFetcher._round_metric(nav),
+            "estimated_nav": FundDataFetcher._round_metric(est_nav),
+            "prev_close": None,
+            "change_pct": FundDataFetcher._round_metric(change_pct, 2),
+            "quote_date": nav_quote.get("nav_date", ""),
+            "quote_time": nav_quote.get("est_time", ""),
+        }
+
+    @staticmethod
+    def _get_indicator_history(fund_code: str, trade_mode: str) -> tuple[pd.DataFrame, str]:
+        """获取计算指标所需的近期历史数据。"""
+        start = datetime.now() - timedelta(days=INDICATOR_LOOKBACK_DAYS)
+        end = datetime.now()
+
+        if trade_mode == "exchange_traded":
+            history_df = FundDataFetcher.get_etf_history(
+                fund_code,
+                start_date=start.strftime("%Y%m%d"),
+                end_date=end.strftime("%Y%m%d"),
+            )
+            if history_df is not None and not history_df.empty:
+                return history_df, "etf_history"
+
+        history_df = FundDataFetcher.get_fund_nav_history(
+            fund_code,
+            start_date=start.strftime("%Y-%m-%d"),
+            end_date=end.strftime("%Y-%m-%d"),
+        )
+        if history_df is not None and not history_df.empty:
+            return history_df, "fund_nav_history"
+
+        return pd.DataFrame(), ""
+
+    @staticmethod
+    def _build_history_indicators(history_df: pd.DataFrame) -> dict:
+        """从历史价格/净值序列生成多种指标。"""
+        if history_df is None or history_df.empty:
+            return {}
+
+        price_column = None
+        if "close" in history_df.columns and history_df["close"].notna().any():
+            price_column = "close"
+        elif "nav" in history_df.columns and history_df["nav"].notna().any():
+            price_column = "nav"
+        if not price_column:
+            return {}
+
+        df = history_df.copy()
+        df["trade_date"] = pd.to_datetime(df["trade_date"])
+        df[price_column] = pd.to_numeric(df[price_column], errors="coerce")
+        df = df.dropna(subset=[price_column]).sort_values("trade_date").reset_index(drop=True)
+        if df.empty:
+            return {}
+
+        prices = df[price_column]
+        latest_price = prices.iloc[-1]
+        ma20 = prices.tail(20).mean() if len(prices) >= 20 else None
+        ma60 = prices.tail(60).mean() if len(prices) >= 60 else None
+        ma120 = prices.tail(120).mean() if len(prices) >= 120 else None
+
+        recent_high_60d = prices.tail(60).max() if len(prices) >= 2 else None
+        drawdown_60d = None
+        if recent_high_60d is not None and recent_high_60d > 0:
+            drawdown_60d = (latest_price / recent_high_60d) - 1
+
+        latest_trade_date = df["trade_date"].iloc[-1]
+        if hasattr(latest_trade_date, "date"):
+            latest_trade_date = latest_trade_date.date().isoformat()
+        else:
+            latest_trade_date = str(latest_trade_date)
+
+        return {
+            "latest_trade_date": latest_trade_date,
+            "data_points": int(len(df)),
+            "ma20": FundDataFetcher._round_metric(ma20),
+            "ma60": FundDataFetcher._round_metric(ma60),
+            "ma120": FundDataFetcher._round_metric(ma120),
+            "price_vs_ma20": FundDataFetcher._round_metric(
+                FundDataFetcher._calc_price_distance(latest_price, ma20)
+            ),
+            "price_vs_ma60": FundDataFetcher._round_metric(
+                FundDataFetcher._calc_price_distance(latest_price, ma60)
+            ),
+            "price_vs_ma120": FundDataFetcher._round_metric(
+                FundDataFetcher._calc_price_distance(latest_price, ma120)
+            ),
+            "drawdown_60d": FundDataFetcher._round_metric(drawdown_60d),
+            "relative_strength_20d": FundDataFetcher._round_metric(
+                FundDataFetcher._calc_period_return(prices, 20)
+            ),
+            "return_1m": FundDataFetcher._round_metric(FundDataFetcher._calc_period_return(prices, 20)),
+            "return_3m": FundDataFetcher._round_metric(FundDataFetcher._calc_period_return(prices, 60)),
+            "return_6m": FundDataFetcher._round_metric(FundDataFetcher._calc_period_return(prices, 120)),
+            "return_1y": FundDataFetcher._round_metric(FundDataFetcher._calc_period_return(prices, 250)),
+        }
+
+    @staticmethod
+    def _get_history_indicators(fund_code: str, trade_mode: str) -> dict:
+        history_df, source = FundDataFetcher._get_indicator_history(fund_code, trade_mode)
+        indicators = FundDataFetcher._build_history_indicators(history_df)
+        if indicators:
+            indicators["source"] = source
+        return indicators
+
+    @staticmethod
     def get_fund_info(fund_code: str) -> Optional[dict]:
         """
         获取基金详细信息
@@ -127,29 +341,49 @@ class FundDataFetcher:
             基金信息字典
         """
         try:
-            import akshare as ak
-            # 获取基金基本信息
-            info_df = ak.fund_individual_basic_info_xq(symbol=fund_code)
-            info = {}
-            if info_df is not None and len(info_df) > 0:
-                for _, row in info_df.iterrows():
-                    key = str(row.iloc[0]).strip()
-                    val = str(row.iloc[1]).strip()
-                    info[key] = val
+            info = FundDataFetcher._get_basic_fund_info(fund_code)
+            fallback_info = {}
+            if not info:
+                fallback_info = FundDataFetcher._get_fund_info_em(fund_code) or {}
+
+            name = (
+                info.get("基金全称")
+                or info.get("基金简称")
+                or fallback_info.get("name")
+                or fund_code
+            )
+            short_name = info.get("基金简称") or fallback_info.get("short_name") or ""
+            fund_type = info.get("基金类型") or fallback_info.get("type") or ""
+            instrument_type = FundDataFetcher._infer_instrument_type(short_name or name, fund_type)
+            trade_mode = FundDataFetcher._infer_trade_mode(instrument_type)
+            quote = FundDataFetcher._build_quote_snapshot(fund_code, trade_mode)
+            indicators = FundDataFetcher._get_history_indicators(fund_code, trade_mode)
 
             return {
                 "code": fund_code,
-                "name": info.get("基金全称", info.get("基金简称", fund_code)),
-                "short_name": info.get("基金简称", ""),
-                "type": info.get("基金类型", ""),
+                "name": name,
+                "short_name": short_name,
+                "type": fund_type,
+                "instrument_type": instrument_type,
+                "trade_mode": trade_mode,
                 "manager": info.get("基金经理", ""),
                 "company": info.get("基金公司", info.get("管理人", "")),
                 "inception_date": info.get("成立日期", ""),
                 "benchmark": info.get("业绩比较基准", ""),
+                "latest_price": quote.get("latest_price"),
+                "nav": quote.get("latest_nav"),
+                "est_nav": quote.get("estimated_nav"),
+                "change_pct": quote.get("change_pct"),
+                "est_change_pct": quote.get("change_pct"),
+                "quote_date": quote.get("quote_date", ""),
+                "quote_time": quote.get("quote_time", ""),
+                "nav_date": quote.get("quote_date", ""),
+                "quote": quote,
+                "indicators": indicators,
                 "raw_info": info,
             }
         except Exception as e:
-            logger.warning(f"akshare 获取基金信息失败: {e}，使用备选方案")
+            logger.warning(f"获取基金信息失败: {e}，使用备选方案")
             return FundDataFetcher._get_fund_info_em(fund_code)
 
     @staticmethod
@@ -384,6 +618,182 @@ class FundDataFetcher:
         return pd.DataFrame()
 
     @staticmethod
+    def _normalize_history_frame(df: pd.DataFrame, numeric_columns: list[str]) -> pd.DataFrame:
+        """Normalize date and numeric columns in a history DataFrame."""
+        normalized = df.copy()
+        if "trade_date" in normalized.columns:
+            normalized["trade_date"] = pd.to_datetime(normalized["trade_date"])
+
+        for column in numeric_columns:
+            if column not in normalized.columns:
+                continue
+            series = normalized[column]
+            if series.dtype == object:
+                series = series.astype(str).str.replace(",", "", regex=False).str.replace("%", "", regex=False)
+            normalized[column] = pd.to_numeric(series, errors="coerce")
+
+        return normalized
+
+    @staticmethod
+    def get_fund_nav_history_extended(
+        fund_code: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> pd.DataFrame:
+        """Get fund nav history with acc_nav for daily imports."""
+        try:
+            import akshare as ak
+
+            df = ak.fund_open_fund_info_em(symbol=fund_code, indicator="单位净值走势")
+            if df is None or df.empty:
+                return pd.DataFrame()
+
+            df = df.rename(columns={
+                "净值日期": "trade_date",
+                "单位净值": "nav",
+                "累计净值": "acc_nav",
+                "日增长率": "change_pct",
+            })
+            df = FundDataFetcher._normalize_history_frame(
+                df,
+                numeric_columns=["nav", "acc_nav", "change_pct"],
+            )
+
+            if start_date:
+                df = df[df["trade_date"] >= pd.to_datetime(start_date)]
+            if end_date:
+                df = df[df["trade_date"] <= pd.to_datetime(end_date)]
+
+            keep_columns = [
+                column for column in ("trade_date", "nav", "acc_nav", "change_pct")
+                if column in df.columns
+            ]
+            return df[keep_columns].sort_values("trade_date").reset_index(drop=True)
+        except Exception as e:
+            logger.error(f"获取基金历史净值失败 {fund_code}: {e}")
+            return pd.DataFrame()
+
+    @staticmethod
+    def get_exchange_traded_history_extended(
+        symbol: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> pd.DataFrame:
+        """Get exchange-traded history with amount/turnover/amplitude/nav."""
+        try:
+            import akshare as ak
+
+            if not start_date:
+                start_date = (datetime.now() - timedelta(days=DEFAULT_HISTORY_DAYS)).strftime("%Y%m%d")
+            if not end_date:
+                end_date = datetime.now().strftime("%Y%m%d")
+
+            price_df = ak.fund_etf_hist_em(
+                symbol=symbol,
+                period="daily",
+                start_date=start_date,
+                end_date=end_date,
+                adjust="qfq",
+            )
+            if price_df is None or price_df.empty:
+                return pd.DataFrame()
+
+            price_df = price_df.rename(columns={
+                "日期": "trade_date",
+                "开盘": "open",
+                "收盘": "close",
+                "最高": "high",
+                "最低": "low",
+                "成交量": "volume",
+                "成交额": "amount",
+                "振幅": "amplitude",
+                "换手率": "turnover_rate",
+            })
+            price_df = FundDataFetcher._normalize_history_frame(
+                price_df,
+                numeric_columns=[
+                    "open",
+                    "high",
+                    "low",
+                    "close",
+                    "volume",
+                    "amount",
+                    "amplitude",
+                    "turnover_rate",
+                ],
+            )
+            price_df = price_df.sort_values("trade_date").reset_index(drop=True)
+            price_df["prev_close"] = price_df["close"].shift(1)
+
+            nav_df = FundDataFetcher.get_fund_nav_history_extended(
+                symbol,
+                start_date=datetime.strptime(start_date, "%Y%m%d").strftime("%Y-%m-%d"),
+                end_date=datetime.strptime(end_date, "%Y%m%d").strftime("%Y-%m-%d"),
+            )
+            if nav_df is not None and not nav_df.empty:
+                nav_columns = [
+                    column for column in ("trade_date", "nav", "acc_nav")
+                    if column in nav_df.columns
+                ]
+                price_df = price_df.merge(nav_df[nav_columns], on="trade_date", how="left")
+
+            keep_columns = [
+                column for column in (
+                    "trade_date",
+                    "open",
+                    "high",
+                    "low",
+                    "close",
+                    "prev_close",
+                    "volume",
+                    "amount",
+                    "amplitude",
+                    "turnover_rate",
+                    "nav",
+                    "acc_nav",
+                )
+                if column in price_df.columns
+            ]
+            return price_df[keep_columns].sort_values("trade_date").reset_index(drop=True)
+        except Exception as e:
+            logger.error(f"获取场内历史行情失败 {symbol}: {e}")
+            return pd.DataFrame()
+
+    @staticmethod
+    def _build_market_data_payload(row: pd.Series, trade_mode: str) -> dict:
+        """Map one imported history row to MarketData raw fields."""
+        payload = {
+            "open": FundDataFetcher._to_float(row.get("open")),
+            "high": FundDataFetcher._to_float(row.get("high")),
+            "low": FundDataFetcher._to_float(row.get("low")),
+            "close": FundDataFetcher._to_float(row.get("close")),
+            "prev_close": FundDataFetcher._to_float(row.get("prev_close")),
+            "volume": FundDataFetcher._to_float(row.get("volume")),
+            "amount": FundDataFetcher._to_float(row.get("amount")),
+            "turnover_rate": FundDataFetcher._to_float(row.get("turnover_rate")),
+            "amplitude": FundDataFetcher._to_float(row.get("amplitude")),
+            "nav": FundDataFetcher._to_float(row.get("nav")),
+            "acc_nav": FundDataFetcher._to_float(row.get("acc_nav")),
+            "est_nav": FundDataFetcher._to_float(row.get("est_nav")),
+            "iopv": FundDataFetcher._to_float(row.get("iopv")),
+        }
+        if trade_mode != "exchange_traded" and payload["close"] is None:
+            payload["close"] = payload["nav"]
+        return payload
+
+    @staticmethod
+    def _upsert_market_data(market_data, payload: dict) -> bool:
+        """Update non-null fields on an existing MarketData row."""
+        changed = False
+        for field, value in payload.items():
+            if value is None:
+                continue
+            if getattr(market_data, field) != value:
+                setattr(market_data, field, value)
+                changed = True
+        return changed
+
+    @staticmethod
     def get_etf_history(
         etf_code: str,
         start_date: Optional[str] = None,
@@ -516,6 +926,77 @@ class FundDataFetcher:
         return result
 
     @staticmethod
+    def _fetch_and_import_history_v1(instrument_id: int, days: int = DEFAULT_HISTORY_DAYS) -> dict:
+        """Fetch history and import or enrich market_data rows."""
+        from app.extensions import db
+        from app.models.instrument import Instrument
+        from app.models.market_data import MarketData
+        from app.services.market_data_service import MarketDataService
+
+        instrument = db.session.get(Instrument, instrument_id)
+        if not instrument:
+            return {"error": "产品不存在"}
+
+        symbol = instrument.symbol
+        start = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
+        end = datetime.now().strftime("%Y%m%d")
+        start_nav = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+        end_nav = datetime.now().strftime("%Y-%m-%d")
+
+        imported = 0
+        updated = 0
+        skipped = 0
+
+        if instrument.trade_mode == "exchange_traded":
+            df = FundDataFetcher.get_exchange_traded_history_extended(symbol, start, end)
+        else:
+            df = FundDataFetcher.get_fund_nav_history_extended(
+                symbol,
+                start_date=start_nav,
+                end_date=end_nav,
+            )
+
+        if df is not None and len(df) > 0:
+            for _, row in df.iterrows():
+                trade_date_value = row["trade_date"].date() if hasattr(row["trade_date"], "date") else row["trade_date"]
+                payload = FundDataFetcher._build_market_data_payload(row, instrument.trade_mode)
+                existing = MarketData.query.filter_by(
+                    instrument_id=instrument_id,
+                    trade_date=trade_date_value,
+                ).first()
+
+                if existing:
+                    changed = FundDataFetcher._upsert_market_data(existing, payload)
+                    if changed:
+                        updated += 1
+                    else:
+                        skipped += 1
+                    continue
+
+                market_data = MarketData(
+                    instrument_id=instrument_id,
+                    trade_date=trade_date_value,
+                    **payload,
+                )
+                db.session.add(market_data)
+                imported += 1
+
+        db.session.commit()
+
+        if imported > 0 or updated > 0:
+            MarketDataService.calculate_indicators(instrument_id)
+
+        result = {
+            "symbol": symbol,
+            "days_requested": days,
+            "imported": imported,
+            "updated": updated,
+            "skipped": skipped,
+        }
+        logger.info(f"历史数据导入: {result}")
+        return result
+
+    @staticmethod
     def fetch_all_prices() -> dict:
         """
         批量抓取所有活跃产品的最新价格
@@ -556,7 +1037,7 @@ class FundDataFetcher:
         return summary
 
     @staticmethod
-    def fetch_and_import_history(instrument_id: int, days: int = DEFAULT_HISTORY_DAYS) -> dict:
+    def _fetch_and_import_history_legacy(instrument_id: int, days: int = DEFAULT_HISTORY_DAYS) -> dict:
         """
         抓取历史数据并写入 market_data 表
 
@@ -640,6 +1121,76 @@ class FundDataFetcher:
             "symbol": symbol,
             "days_requested": days,
             "imported": imported,
+            "skipped": skipped,
+        }
+        logger.info(f"历史数据导入: {result}")
+        return result
+    @staticmethod
+    def fetch_and_import_history(instrument_id: int, days: int = DEFAULT_HISTORY_DAYS) -> dict:
+        """Fetch history and import or enrich market_data rows."""
+        from app.extensions import db
+        from app.models.instrument import Instrument
+        from app.models.market_data import MarketData
+        from app.services.market_data_service import MarketDataService
+
+        instrument = db.session.get(Instrument, instrument_id)
+        if not instrument:
+            return {"error": "产品不存在"}
+
+        symbol = instrument.symbol
+        start = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
+        end = datetime.now().strftime("%Y%m%d")
+        start_nav = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+        end_nav = datetime.now().strftime("%Y-%m-%d")
+
+        imported = 0
+        updated = 0
+        skipped = 0
+
+        if instrument.trade_mode == "exchange_traded":
+            df = FundDataFetcher.get_exchange_traded_history_extended(symbol, start, end)
+        else:
+            df = FundDataFetcher.get_fund_nav_history_extended(
+                symbol,
+                start_date=start_nav,
+                end_date=end_nav,
+            )
+
+        if df is not None and len(df) > 0:
+            for _, row in df.iterrows():
+                trade_date_value = row["trade_date"].date() if hasattr(row["trade_date"], "date") else row["trade_date"]
+                payload = FundDataFetcher._build_market_data_payload(row, instrument.trade_mode)
+                existing = MarketData.query.filter_by(
+                    instrument_id=instrument_id,
+                    trade_date=trade_date_value,
+                ).first()
+
+                if existing:
+                    changed = FundDataFetcher._upsert_market_data(existing, payload)
+                    if changed:
+                        updated += 1
+                    else:
+                        skipped += 1
+                    continue
+
+                market_data = MarketData(
+                    instrument_id=instrument_id,
+                    trade_date=trade_date_value,
+                    **payload,
+                )
+                db.session.add(market_data)
+                imported += 1
+
+        db.session.commit()
+
+        if imported > 0 or updated > 0:
+            MarketDataService.calculate_indicators(instrument_id)
+
+        result = {
+            "symbol": symbol,
+            "days_requested": days,
+            "imported": imported,
+            "updated": updated,
             "skipped": skipped,
         }
         logger.info(f"历史数据导入: {result}")

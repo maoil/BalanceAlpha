@@ -135,33 +135,68 @@ def _configure_logging(app: Flask) -> None:
 def _ensure_runtime_schema(db) -> None:
     """为已有数据库补齐轻量字段，避免 create_all 无法升级旧表结构。"""
     inspector = inspect(db.engine)
-    if "signals" not in inspector.get_table_names():
+    table_names = set(inspector.get_table_names())
+    if not table_names:
         return
 
-    columns = {column["name"] for column in inspector.get_columns("signals")}
-    statements = []
+    if "signals" in table_names:
+        columns = {column["name"] for column in inspector.get_columns("signals")}
+        statements = []
 
-    if "batch_id" not in columns:
-        statements.append(
-            text('ALTER TABLE signals ADD COLUMN batch_id VARCHAR(36) DEFAULT ""')
-        )
-    if "batch_version" not in columns:
-        statements.append(
-            text("ALTER TABLE signals ADD COLUMN batch_version INTEGER DEFAULT 1")
-        )
-
-    if statements:
-        with db.engine.begin() as conn:
-            for statement in statements:
-                conn.execute(statement)
-
-    with db.engine.begin() as conn:
-        conn.execute(
-            text(
-                "UPDATE signals SET batch_version = 1 "
-                "WHERE batch_version IS NULL OR batch_version = 0"
+        if "batch_id" not in columns:
+            statements.append(
+                text('ALTER TABLE signals ADD COLUMN batch_id VARCHAR(36) DEFAULT ""')
             )
-        )
+        if "batch_version" not in columns:
+            statements.append(
+                text("ALTER TABLE signals ADD COLUMN batch_version INTEGER DEFAULT 1")
+            )
+
+        if statements:
+            with db.engine.begin() as conn:
+                for statement in statements:
+                    conn.execute(statement)
+
+        with db.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE signals SET batch_version = 1 "
+                    "WHERE batch_version IS NULL OR batch_version = 0"
+                )
+            )
+
+    if "market_data" in table_names:
+        columns = {column["name"] for column in inspector.get_columns("market_data")}
+        column_definitions = {
+            "prev_close": "FLOAT",
+            "amount": "FLOAT",
+            "turnover_rate": "FLOAT",
+            "amplitude": "FLOAT",
+            "open_gap_pct": "FLOAT",
+            "est_nav": "FLOAT",
+            "iopv": "FLOAT",
+            "premium_discount_pct": "FLOAT",
+            "premium_discount_zscore_20d": "FLOAT",
+            "atr14": "FLOAT",
+            "volatility_20d": "FLOAT",
+            "return_5d": "FLOAT",
+            "return_20d": "FLOAT",
+            "return_60d": "FLOAT",
+            "breakout_high_20d": "FLOAT",
+            "breakdown_low_20d": "FLOAT",
+            "max_drawdown_120d": "FLOAT",
+            "volume_ma20": "FLOAT",
+            "volume_ratio_5d": "FLOAT",
+        }
+        statements = [
+            text(f"ALTER TABLE market_data ADD COLUMN {name} {sql_type}")
+            for name, sql_type in column_definitions.items()
+            if name not in columns
+        ]
+        if statements:
+            with db.engine.begin() as conn:
+                for statement in statements:
+                    conn.execute(statement)
 
 
 def _auto_seed(db) -> None:
