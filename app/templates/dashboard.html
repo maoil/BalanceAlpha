@@ -44,6 +44,195 @@
     </div>
 </div>
 
+{% if market_sentiment %}
+<div class="row g-3 mb-4">
+    <div class="col-lg-7">
+        <div class="card h-100">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <strong><i class="bi bi-activity"></i> 市场热度观察</strong>
+                <small class="text-muted">{{ market_sentiment.updated_at }}</small>
+            </div>
+            <div class="card-body">
+                {% if market_sentiment.heat and market_sentiment.heat.score is not none %}
+                <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+                    <div>
+                        <div class="text-muted small mb-1">自定义热度评分</div>
+                        <div class="display-6 fw-bold">{{ market_sentiment.heat.score }}</div>
+                    </div>
+                    <div class="text-end">
+                        <span class="badge {{ market_sentiment.heat.badge_class }}">{{ market_sentiment.heat.level_label }}</span>
+                        <div class="text-muted small mt-2">{{ market_sentiment.formula_note }}</div>
+                    </div>
+                </div>
+                <div class="mb-3">{{ market_sentiment.heat.summary }}</div>
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <div class="p-3 bg-light rounded h-100">
+                            <div class="small text-muted">指数动能</div>
+                            <div class="fw-bold">{{ format_number(market_sentiment.heat.index_score, 1) }}</div>
+                            <div class="small">均值涨跌：{{ format_pct(market_sentiment.heat.avg_index_change_pct / 100) }}</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="p-3 bg-light rounded h-100">
+                            <div class="small text-muted">人气强度</div>
+                            <div class="fw-bold">{{ format_number(market_sentiment.heat.popularity_score, 1) }}</div>
+                            <div class="small">热股上涨占比：{{ format_pct(market_sentiment.heat.hot_up_ratio / 100) }}</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="p-3 bg-light rounded h-100">
+                            <div class="small text-muted">外部风险压制</div>
+                            <div class="fw-bold">{{ format_number(market_sentiment.heat.risk_score, 1) }}</div>
+                            <div class="small">热股均涨跌：{{ format_pct(market_sentiment.heat.top_hot_avg_change_pct / 100) }}</div>
+                        </div>
+                    </div>
+                </div>
+
+                {% if market_sentiment.indices %}
+                <div class="mt-3">
+                    <div class="small text-muted mb-2">A 股核心指数</div>
+                    <div class="row g-2">
+                        {% for item in market_sentiment.indices %}
+                        <div class="col-sm-6">
+                            <div class="border rounded p-2 h-100">
+                                <div class="small text-muted">{{ item.name }}</div>
+                                <div class="fw-bold">{{ format_number(item.latest, 2) }}</div>
+                                <div class="{{ 'text-profit' if item.change_pct > 0 else 'text-loss' if item.change_pct < 0 else '' }}">
+                                    {{ format_pct(item.change_pct / 100) }}
+                                    <small>({{ format_number(item.change_amount, 2) }})</small>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+                {% else %}
+                <div class="text-muted">暂无足够数据计算市场热度。</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-5">
+        <div class="card h-100">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <strong><i class="bi bi-exclamation-triangle"></i> VIX 恐慌指数</strong>
+                {% if market_sentiment.vix %}
+                <span class="badge {{ market_sentiment.vix.badge_class }}">{{ market_sentiment.vix.level_label }}</span>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                {% if market_sentiment.vix %}
+                <div class="mb-3">
+                    <div class="text-muted small">{{ market_sentiment.vix.name }}</div>
+                    <div class="display-6 fw-bold">{{ format_number(market_sentiment.vix.value, 2) }}</div>
+                    <div class="{{ 'text-profit' if market_sentiment.vix.change_pct > 0 else 'text-loss' if market_sentiment.vix.change_pct < 0 else '' }}">
+                        {{ format_pct(market_sentiment.vix.change_pct / 100) }}
+                        <small>({{ format_number(market_sentiment.vix.change_amount, 2) }})</small>
+                    </div>
+                </div>
+                <p class="mb-3">{{ market_sentiment.vix.description }}</p>
+                <div class="row g-2">
+                    <div class="col-6">
+                        <div class="p-3 bg-light rounded">
+                            <div class="small text-muted">今开 / 昨收</div>
+                            <div class="fw-bold">{{ format_number(market_sentiment.vix.open, 2) }} / {{ format_number(market_sentiment.vix.prev_close, 2) }}</div>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="p-3 bg-light rounded">
+                            <div class="small text-muted">日内高低</div>
+                            <div class="fw-bold">{{ format_number(market_sentiment.vix.high, 2) }} / {{ format_number(market_sentiment.vix.low, 2) }}</div>
+                        </div>
+                    </div>
+                </div>
+                {% else %}
+                <div class="text-muted">VIX 暂时不可用。</div>
+                {% endif %}
+
+                {% if market_sentiment.errors %}
+                <div class="mt-3 small text-muted">
+                    数据异常：{{ market_sentiment.errors|join('、') }}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header bg-white">
+                <strong><i class="bi bi-fire"></i> A 股人气榜</strong>
+            </div>
+            <div class="card-body p-0">
+                {% if market_sentiment.hot_rank %}
+                <table class="table table-hover data-table mb-0">
+                    <thead>
+                        <tr>
+                            <th>排名</th>
+                            <th>股票</th>
+                            <th>涨跌幅</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for item in market_sentiment.hot_rank[:5] %}
+                        <tr>
+                            <td>#{{ item.rank }}</td>
+                            <td>{{ item.name }}<br><small class="text-muted">{{ item.plain_code }}</small></td>
+                            <td class="{{ 'text-profit' if item.change_pct > 0 else 'text-loss' if item.change_pct < 0 else '' }}">
+                                {{ format_pct(item.change_pct / 100) }}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <div class="p-4 text-center text-muted">暂无人气榜数据</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header bg-white">
+                <strong><i class="bi bi-rocket-takeoff"></i> A 股飙升榜</strong>
+            </div>
+            <div class="card-body p-0">
+                {% if market_sentiment.hot_up %}
+                <table class="table table-hover data-table mb-0">
+                    <thead>
+                        <tr>
+                            <th>跃升</th>
+                            <th>股票</th>
+                            <th>涨跌幅</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for item in market_sentiment.hot_up[:5] %}
+                        <tr>
+                            <td>+{{ format_number(item.rank_change, 0) }}</td>
+                            <td>{{ item.name }}<br><small class="text-muted">{{ item.plain_code }}</small></td>
+                            <td class="{{ 'text-profit' if item.change_pct > 0 else 'text-loss' if item.change_pct < 0 else '' }}">
+                                {{ format_pct(item.change_pct / 100) }}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <div class="p-4 text-center text-muted">暂无飙升榜数据</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <!-- 账户概览 -->
 <div class="row g-3 mb-4">
 {% for code, info in account_summaries.items() %}

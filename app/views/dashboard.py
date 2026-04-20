@@ -4,6 +4,7 @@
 from flask import Blueprint, render_template
 
 from app.services.account_service import AccountService
+from app.services.market_sentiment_service import MarketSentimentService
 from app.services.trade_service import TradeService
 from app.services.signal_service import SignalService
 
@@ -40,6 +41,9 @@ def index():
     # 待处理信号
     pending_signals = SignalService.get_pending_signals()
 
+    # 市场热度 / VIX
+    market_sentiment = MarketSentimentService.get_dashboard_snapshot()
+
     return render_template(
         "dashboard.html",
         account_summaries=account_summaries,
@@ -50,4 +54,5 @@ def index():
         total_positions=total_positions,
         recent_trades=recent_trades,
         pending_signals=pending_signals,
+        market_sentiment=market_sentiment,
     )
