@@ -2,6 +2,14 @@
 {% block title %}仪表盘{% endblock %}
 {% block page_title %}<h6 class="mb-0"><i class="bi bi-speedometer2"></i> 仪表盘</h6>{% endblock %}
 
+{% macro change_class(value) -%}
+{{ 'text-profit' if value is not none and value > 0 else 'text-loss' if value is not none and value < 0 else '' }}
+{%- endmacro %}
+
+{% macro pct_display(value) -%}
+{{ format_pct(value / 100 if value is not none else none) }}
+{%- endmacro %}
+
 {% block content %}
 <!-- 总览卡片 -->
 <div class="row g-3 mb-4">
@@ -98,8 +106,8 @@
                             <div class="border rounded p-2 h-100">
                                 <div class="small text-muted">{{ item.name }}</div>
                                 <div class="fw-bold">{{ format_number(item.latest, 2) }}</div>
-                                <div class="{{ 'text-profit' if item.change_pct > 0 else 'text-loss' if item.change_pct < 0 else '' }}">
-                                    {{ format_pct(item.change_pct / 100) }}
+                                <div class="{{ change_class(item.change_pct) }}">
+                                    {{ pct_display(item.change_pct) }}
                                     <small>({{ format_number(item.change_amount, 2) }})</small>
                                 </div>
                             </div>
@@ -128,8 +136,8 @@
                 <div class="mb-3">
                     <div class="text-muted small">{{ market_sentiment.vix.name }}</div>
                     <div class="display-6 fw-bold">{{ format_number(market_sentiment.vix.value, 2) }}</div>
-                    <div class="{{ 'text-profit' if market_sentiment.vix.change_pct > 0 else 'text-loss' if market_sentiment.vix.change_pct < 0 else '' }}">
-                        {{ format_pct(market_sentiment.vix.change_pct / 100) }}
+                    <div class="{{ change_class(market_sentiment.vix.change_pct) }}">
+                        {{ pct_display(market_sentiment.vix.change_pct) }}
                         <small>({{ format_number(market_sentiment.vix.change_amount, 2) }})</small>
                     </div>
                 </div>
@@ -183,8 +191,8 @@
                         <tr>
                             <td>#{{ item.rank }}</td>
                             <td>{{ item.name }}<br><small class="text-muted">{{ item.plain_code }}</small></td>
-                            <td class="{{ 'text-profit' if item.change_pct > 0 else 'text-loss' if item.change_pct < 0 else '' }}">
-                                {{ format_pct(item.change_pct / 100) }}
+                            <td class="{{ change_class(item.change_pct) }}">
+                                {{ pct_display(item.change_pct) }}
                             </td>
                         </tr>
                     {% endfor %}
@@ -217,8 +225,8 @@
                         <tr>
                             <td>+{{ format_number(item.rank_change, 0) }}</td>
                             <td>{{ item.name }}<br><small class="text-muted">{{ item.plain_code }}</small></td>
-                            <td class="{{ 'text-profit' if item.change_pct > 0 else 'text-loss' if item.change_pct < 0 else '' }}">
-                                {{ format_pct(item.change_pct / 100) }}
+                            <td class="{{ change_class(item.change_pct) }}">
+                                {{ pct_display(item.change_pct) }}
                             </td>
                         </tr>
                     {% endfor %}
