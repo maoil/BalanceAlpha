@@ -13,6 +13,8 @@ import json
 import logging
 import requests
 from typing import Optional
+
+from app.utils.helpers import to_float as _helpers_to_float, round_metric as _helpers_round_metric
 from datetime import date, datetime, timedelta
 
 import pandas as pd
@@ -79,7 +81,7 @@ class FundDataFetcher:
             return results
 
         except Exception as e:
-            logger.error(f"搜索基金失败: {e}")
+            logger.error("搜索基金失败: %s", e)
             # 备选方案：用 akshare
             return FundDataFetcher._search_fund_akshare(keyword)
 
@@ -114,7 +116,7 @@ class FundDataFetcher:
                 })
             return results
         except Exception as e:
-            logger.error(f"akshare 搜索基金失败: {e}")
+            logger.error("akshare 搜索基金失败: %s", e)
             return []
 
     @staticmethod
@@ -133,7 +135,7 @@ class FundDataFetcher:
                         info[key] = val
             return info
         except Exception as e:
-            logger.warning(f"akshare 获取基金信息失败: {e}")
+            logger.warning("akshare 获取基金信息失败: %s", e)
             return {}
 
     @staticmethod
@@ -154,23 +156,13 @@ class FundDataFetcher:
 
     @staticmethod
     def _to_float(value: object) -> Optional[float]:
-        if value in (None, ""):
-            return None
-        if isinstance(value, str):
-            value = value.replace("%", "").replace(",", "").strip()
-            if not value or value in {"--", "None", "nan"}:
-                return None
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
+        """委托给 helpers.to_float"""
+        return _helpers_to_float(value)
 
     @staticmethod
     def _round_metric(value: object, digits: int = 4) -> Optional[float]:
-        numeric = FundDataFetcher._to_float(value)
-        if numeric is None or pd.isna(numeric):
-            return None
-        return round(float(numeric), digits)
+        """委托给 helpers.round_metric"""
+        return _helpers_round_metric(value, digits)
 
     @staticmethod
     def _calc_period_return(prices: pd.Series, periods: int) -> Optional[float]:
@@ -383,7 +375,7 @@ class FundDataFetcher:
                 "raw_info": info,
             }
         except Exception as e:
-            logger.warning(f"获取基金信息失败: {e}，使用备选方案")
+            logger.warning("获取基金信息失败: %s，使用备选方案", e)
             return FundDataFetcher._get_fund_info_em(fund_code)
 
     @staticmethod
@@ -406,7 +398,7 @@ class FundDataFetcher:
                     "nav_date": data.get("jzrq", ""),
                 }
         except Exception as e:
-            logger.error(f"东方财富获取基金信息失败: {e}")
+            logger.error("东方财富获取基金信息失败: %s", e)
         return None
 
     @staticmethod
@@ -464,9 +456,9 @@ class FundDataFetcher:
                 )
 
         except requests.RequestException as e:
-            logger.warning(f"fundgz 请求失败 {fund_code}: {e}")
+            logger.warning("fundgz 请求失败 %s: %s", fund_code, e)
         except Exception as e:
-            logger.warning(f"fundgz 处理异常 {fund_code}: {e}")
+            logger.warning("fundgz 处理异常 %s: %s", fund_code, e)
 
         # ── 降级接口：天天基金净值 API ────────────────────────────────────
         return FundDataFetcher._get_nav_fallback(fund_code)
@@ -526,7 +518,7 @@ class FundDataFetcher:
                 f"降级接口 JSON 解析失败 {fund_code}: {je}"
             )
         except Exception as e:
-            logger.error(f"降级接口请求失败 {fund_code}: {e}")
+            logger.error("降级接口请求失败 %s: %s", fund_code, e)
 
         return None
 
@@ -575,7 +567,7 @@ class FundDataFetcher:
                             "time": fields[31],
                         }
         except Exception as e:
-            logger.error(f"获取 ETF 实时价格失败 {etf_code}: {e}")
+            logger.error("获取 ETF 实时价格失败 %s: %s", etf_code, e)
         return None
 
     @staticmethod
@@ -613,7 +605,7 @@ class FundDataFetcher:
 
                 return df.sort_values("trade_date").reset_index(drop=True)
         except Exception as e:
-            logger.error(f"获取基金历史净值失败 {fund_code}: {e}")
+            logger.error("获取基金历史净值失败 %s: %s", fund_code, e)
 
         return pd.DataFrame()
 
@@ -670,7 +662,7 @@ class FundDataFetcher:
             ]
             return df[keep_columns].sort_values("trade_date").reset_index(drop=True)
         except Exception as e:
-            logger.error(f"获取基金历史净值失败 {fund_code}: {e}")
+            logger.error("获取基金历史净值失败 %s: %s", fund_code, e)
             return pd.DataFrame()
 
     @staticmethod
@@ -756,7 +748,7 @@ class FundDataFetcher:
             ]
             return price_df[keep_columns].sort_values("trade_date").reset_index(drop=True)
         except Exception as e:
-            logger.error(f"获取场内历史行情失败 {symbol}: {e}")
+            logger.error("获取场内历史行情失败 %s: %s", symbol, e)
             return pd.DataFrame()
 
     @staticmethod
@@ -837,7 +829,7 @@ class FundDataFetcher:
                 return df[["trade_date", "open", "high", "low", "close", "volume"]].sort_values("trade_date").reset_index(drop=True)
 
         except Exception as e:
-            logger.error(f"获取 ETF 历史行情失败 {etf_code}: {e}")
+            logger.error("获取 ETF 历史行情失败 %s: %s", etf_code, e)
 
         return pd.DataFrame()
 
@@ -921,7 +913,7 @@ class FundDataFetcher:
             PositionService.recalculate_weights()
             db.session.commit()
 
-            logger.info(f"更新价格: {symbol} = {price} ({result['source']})")
+            logger.info("更新价格: %s = %s (%s)", symbol, price, result['source'])
 
         return result
 
@@ -993,7 +985,7 @@ class FundDataFetcher:
             "updated": updated,
             "skipped": skipped,
         }
-        logger.info(f"历史数据导入: {result}")
+        logger.info("历史数据导入: %s", result)
         return result
 
     @staticmethod
@@ -1123,7 +1115,7 @@ class FundDataFetcher:
             "imported": imported,
             "skipped": skipped,
         }
-        logger.info(f"历史数据导入: {result}")
+        logger.info("历史数据导入: %s", result)
         return result
     @staticmethod
     def fetch_and_import_history(instrument_id: int, days: int = DEFAULT_HISTORY_DAYS) -> dict:
@@ -1193,5 +1185,5 @@ class FundDataFetcher:
             "updated": updated,
             "skipped": skipped,
         }
-        logger.info(f"历史数据导入: {result}")
+        logger.info("历史数据导入: %s", result)
         return result

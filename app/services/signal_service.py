@@ -162,7 +162,7 @@ class SignalService:
 
                 except Exception as e:
                     # PRD 规则：若数据缺失，输出"无法评估"而非静默失败
-                    logger.error(f"信号生成失败: {instrument.symbol}: {e}")
+                    logger.error("信号生成失败: %s: %s", instrument.symbol, e)
                     signal = Signal(
                         signal_date=signal_date,
                         account_id=account.id,
@@ -180,7 +180,8 @@ class SignalService:
 
         db.session.commit()
         logger.info(
-            f"信号生成完成: 日期={signal_date}, 版本=v{next_batch_version}, 数量={len(generated)}"
+            "信号生成完成: 日期=%s, 版本=v%s, 数量=%s",
+            signal_date, next_batch_version, len(generated),
         )
 
         from app.services.log_service import LogService
@@ -342,10 +343,7 @@ class SignalService:
         ).first()
 
         # 读取策略参数（支持产品级覆盖）
-        template = db.session.get(StrategyTemplate, assignment.template_id)
-        config = json.loads(template.config_json) if template else {}
-        custom_config = json.loads(assignment.custom_config_json) if assignment.custom_config_json else {}
-        config.update(custom_config)
+        config = assignment.get_effective_config()
 
         stop_loss_warn_pct = config.get("stop_loss_warn_pct", -0.05)
         stop_loss_warn_reduce_ratio = config.get("stop_loss_warn_reduce_ratio", 0.25)

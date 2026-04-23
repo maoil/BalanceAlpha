@@ -10,6 +10,7 @@ import pandas as pd
 from app.extensions import db
 from app.models.market_data import MarketData
 from app.services.log_service import LogService
+from app.utils.helpers import to_float as _helpers_to_float, round_metric as _helpers_round_metric
 
 logger = logging.getLogger(__name__)
 
@@ -358,18 +359,8 @@ class MarketDataService:
 
     @staticmethod
     def _to_float(value: object) -> Optional[float]:
-        if value is None:
-            return None
-        if isinstance(value, str):
-            value = value.replace(",", "").replace("%", "").strip()
-            if not value or value in {"--", "None", "nan", "NaN"}:
-                return None
-        if pd.isna(value):
-            return None
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
+        """委托给 helpers.to_float"""
+        return _helpers_to_float(value)
 
     @staticmethod
     def _positive_series(series: pd.Series) -> pd.Series:
@@ -377,9 +368,8 @@ class MarketDataService:
 
     @staticmethod
     def _round(value: object, digits: int = 4) -> Optional[float]:
-        if value is None or pd.isna(value):
-            return None
-        return round(float(value), digits)
+        """委托给 helpers.round_metric"""
+        return _helpers_round_metric(value, digits)
 
     @staticmethod
     def _window_max_drawdown(window: pd.Series) -> float:
