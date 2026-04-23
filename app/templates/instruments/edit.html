@@ -6,9 +6,11 @@
 <div class="row justify-content-center">
     <div class="col-md-8">
         <div class="form-card">
-            <h5 class="mb-4">编辑产品: {{ instrument.symbol }} - {{ instrument.name }}</h5>
+            <h5 class="mb-4">编辑产品：{{ instrument.symbol }} - {{ instrument.name }}</h5>
+
             <form method="post">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
                 <div class="row g-3">
                     <div class="col-md-4">
                         <label class="form-label">产品代码</label>
@@ -50,7 +52,9 @@
                         <select name="default_strategy_template" class="form-select">
                             <option value="">-- 选择模板 --</option>
                             {% for tpl in templates %}
-                            <option value="{{ tpl.template_code }}" {{ 'selected' if instrument.default_strategy_template == tpl.template_code }}>{{ tpl.template_name }}</option>
+                            <option value="{{ tpl.template_code }}" {{ 'selected' if instrument.default_strategy_template == tpl.template_code }}>
+                                {{ tpl.template_name }}
+                            </option>
                             {% endfor %}
                         </select>
                     </div>
@@ -64,18 +68,36 @@
                             <option value="archived" {{ 'selected' if instrument.status == 'archived' }}>已归档</option>
                         </select>
                     </div>
-                    <div class="col-md-12">
+
+                    <div class="col-12">
                         <div class="form-check">
-                            <input type="checkbox" name="is_dca_eligible" class="form-check-input" id="dcaCheck"
-                                   {{ 'checked' if instrument.is_dca_eligible }}>
-                            <label class="form-check-label" for="dcaCheck">允许定投</label>
+                            <input type="checkbox" name="is_dca_eligible" class="form-check-input" id="dcaCheck" {{ 'checked' if instrument.is_dca_eligible }}>
+                            <label class="form-check-label" for="dcaCheck">启用月定投</label>
                         </div>
                     </div>
-                    <div class="col-md-12">
+
+                    <div class="col-md-4">
+                        <label class="form-label">确认周期</label>
+                        <select name="dca_confirm_cycle" class="form-select">
+                            <option value="1" {{ 'selected' if instrument.dca_confirm_cycle == 1 }}>T+1</option>
+                            <option value="2" {{ 'selected' if instrument.dca_confirm_cycle == 2 }}>T+2</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">月定投金额</label>
+                        <input type="number" step="0.01" min="0" name="dca_amount" class="form-control" value="{{ dca_plan.amount if dca_plan else '' }}">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">每月执行日</label>
+                        <input type="number" min="1" max="31" name="dca_schedule_day" class="form-control" value="{{ dca_plan.schedule_day if dca_plan else '' }}">
+                    </div>
+
+                    <div class="col-12">
                         <label class="form-label">备注</label>
                         <textarea name="notes" class="form-control" rows="2">{{ instrument.notes or '' }}</textarea>
                     </div>
                 </div>
+
                 <div class="mt-4">
                     <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> 保存</button>
                     <a href="{{ url_for('instruments.list_instruments') }}" class="btn btn-outline-secondary ms-2">取消</a>

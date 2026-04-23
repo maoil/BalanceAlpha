@@ -997,13 +997,21 @@ class FundDataFetcher:
             {"updated": 更新数, "failed": 失败数, "details": [...]}
         """
         from app.models.instrument import Instrument
+        from app.services.dca_order_service import DcaOrderService
+        from app.services.dca_plan_service import DcaPlanService
         from app.utils.constants import InstrumentStatus
 
         instruments = Instrument.query.filter(
             Instrument.status.in_([InstrumentStatus.ACTIVE.value, InstrumentStatus.WATCHLIST.value])
         ).all()
 
-        summary = {"updated": 0, "failed": 0, "details": []}
+        summary = {
+            "updated": 0,
+            "failed": 0,
+            "details": [],
+            "dca_created": 0,
+            "dca_confirmed": 0,
+        }
 
         for inst in instruments:
             if inst.instrument_type == "cash":
@@ -1025,6 +1033,11 @@ class FundDataFetcher:
                     "name": inst.name,
                     "error": "获取价格失败",
                 })
+
+        dca_generation = DcaPlanService.generate_due_orders(run_date=date.today())
+        dca_confirmation = DcaOrderService.confirm_pending_orders(run_date=date.today())
+        summary["dca_created"] = dca_generation.get("created", 0)
+        summary["dca_confirmed"] = dca_confirmation.get("confirmed", 0)
 
         return summary
 

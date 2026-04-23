@@ -234,7 +234,7 @@ function refreshPrices() {
                 document.getElementById('refreshTime').textContent = '最后刷新: ' + data.refresh_time;
 
                 // 显示结果
-                const msg = `报价已更新: 成功 ${data.updated}, 失败 ${data.failed}`;
+                const msg = `报价已更新: 成功 ${data.updated}, 失败 ${data.failed}, 新建待确认定投 ${data.dca_created || 0}, 确认入账 ${data.dca_confirmed || 0}`;
                 showToast(msg, data.failed > 0 ? 'warning' : 'success');
 
                 // 如果有数据更新，刷新页面展示最新数据

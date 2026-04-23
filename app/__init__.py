@@ -62,6 +62,7 @@ def _init_extensions(app: Flask) -> None:
         from app.models import (
             Account, Instrument, StrategyTemplate, StrategyAssignment,
             Position, Trade, MarketData, Signal, BacktestRun, SystemLog,
+            DcaPlan, DcaOrder,
         )
         db.create_all()
         # NOTE: _ensure_runtime_schema 作为安全网保留，新字段应优先通过
@@ -197,6 +198,34 @@ def _ensure_runtime_schema(db) -> None:
             for name, sql_type in column_definitions.items()
             if name not in columns
         ]
+        if statements:
+            with db.engine.begin() as conn:
+                for statement in statements:
+                    conn.execute(statement)
+
+    if "instruments" in table_names:
+        columns = {column["name"] for column in inspector.get_columns("instruments")}
+        statements = []
+        if "dca_confirm_cycle" not in columns:
+            statements.append(
+                text("ALTER TABLE instruments ADD COLUMN dca_confirm_cycle INTEGER DEFAULT 1")
+            )
+        if statements:
+            with db.engine.begin() as conn:
+                for statement in statements:
+                    conn.execute(statement)
+
+    if "trades" in table_names:
+        columns = {column["name"] for column in inspector.get_columns("trades")}
+        statements = []
+        if "source_type" not in columns:
+            statements.append(
+                text('ALTER TABLE trades ADD COLUMN source_type VARCHAR(30) DEFAULT ""')
+            )
+        if "source_id" not in columns:
+            statements.append(
+                text("ALTER TABLE trades ADD COLUMN source_id INTEGER")
+            )
         if statements:
             with db.engine.begin() as conn:
                 for statement in statements:

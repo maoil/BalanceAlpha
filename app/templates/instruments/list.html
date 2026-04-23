@@ -7,7 +7,7 @@
     <h4>产品列表</h4>
     <div>
         <form method="post" action="{{ url_for('instruments.fetch_all_prices') }}" class="d-inline">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn btn-outline-success me-2">
                 <i class="bi bi-cloud-download"></i> 刷新所有报价
             </button>
@@ -18,7 +18,6 @@
     </div>
 </div>
 
-<!-- 筛选 -->
 <div class="filter-bar">
     <form method="get" class="row g-2 align-items-end">
         <div class="col-auto">
@@ -43,7 +42,6 @@
     </form>
 </div>
 
-<!-- 产品表格 -->
 <div class="card">
     <div class="card-body p-0">
         <table class="table table-hover data-table mb-0">
@@ -55,19 +53,18 @@
                     <th>账户</th>
                     <th>策略模板</th>
                     <th>交易方式</th>
-                    <th>定投</th>
+                    <th>定投配置</th>
                     <th>状态</th>
                     <th>操作</th>
                 </tr>
             </thead>
             <tbody>
             {% for inst in instruments %}
+                {% set dca_plan = inst.dca_plans.filter_by(status='active').first() or inst.dca_plans.first() %}
                 <tr>
                     <td><strong>{{ inst.symbol }}</strong></td>
                     <td>{{ inst.name }}</td>
-                    <td>
-                        <span class="badge bg-light text-dark">{{ inst.instrument_type.upper() }}</span>
-                    </td>
+                    <td><span class="badge bg-light text-dark">{{ inst.instrument_type.upper() }}</span></td>
                     <td>
                         {% if inst.default_account_type == 'core' %}
                             <span class="badge bg-primary">核心</span>
@@ -77,46 +74,52 @@
                     </td>
                     <td><small>{{ inst.default_strategy_template or '-' }}</small></td>
                     <td>{{ '场内' if inst.trade_mode == 'exchange_traded' else '场外' }}</td>
-                    <td>{{ '✓' if inst.is_dca_eligible else '-' }}</td>
+                    <td>
+                        {% if inst.is_dca_eligible %}
+                            <div class="small">
+                                <div><span class="badge bg-success">已启用</span> {{ 'T+1' if inst.dca_confirm_cycle == 1 else 'T+2' }}</div>
+                                <div class="text-muted">
+                                    {{ ('¥%.2f'|format(dca_plan.amount)) if dca_plan else '-' }} /
+                                    每月 {{ dca_plan.schedule_day if dca_plan else '-' }} 日
+                                </div>
+                            </div>
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
                     <td>
                         <span class="status-dot {{ inst.status }}"></span>
                         {{ inst.status }}
                     </td>
                     <td>
                         <div class="btn-group btn-group-sm">
-                            <a href="{{ url_for('instruments.edit_instrument', instrument_id=inst.id) }}"
-                               class="btn btn-outline-secondary" title="编辑">
+                            <a href="{{ url_for('instruments.edit_instrument', instrument_id=inst.id) }}" class="btn btn-outline-secondary" title="编辑">
                                 <i class="bi bi-pencil"></i>
                             </a>
-                            <!-- 获取最新报价 -->
                             <form method="post" action="{{ url_for('instruments.fetch_price', instrument_id=inst.id) }}" class="d-inline">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button type="submit" class="btn btn-outline-success" title="获取最新报价">
                                     <i class="bi bi-cloud-download"></i>
                                 </button>
                             </form>
-                            <!-- 抓取历史数据 -->
                             <form method="post" action="{{ url_for('instruments.fetch_history', instrument_id=inst.id) }}" class="d-inline">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <input type="hidden" name="days" value="{{ default_history_days }}">
                                 <button type="submit" class="btn btn-outline-info" title="抓取{{ default_history_years }}年历史数据">
                                     <i class="bi bi-clock-history"></i>
                                 </button>
                             </form>
-                            <!-- 状态变更 -->
                             {% if inst.status == 'active' %}
-                            <form method="post" action="{{ url_for('instruments.update_status', instrument_id=inst.id) }}"
-                                  class="d-inline" onsubmit="return confirmAction('确定暂停此产品？')">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <form method="post" action="{{ url_for('instruments.update_status', instrument_id=inst.id) }}" class="d-inline">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <input type="hidden" name="status" value="paused">
                                 <button type="submit" class="btn btn-outline-warning" title="暂停">
                                     <i class="bi bi-pause"></i>
                                 </button>
                             </form>
                             {% elif inst.status == 'paused' %}
-                            <form method="post" action="{{ url_for('instruments.update_status', instrument_id=inst.id) }}"
-                                  class="d-inline">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <form method="post" action="{{ url_for('instruments.update_status', instrument_id=inst.id) }}" class="d-inline">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <input type="hidden" name="status" value="active">
                                 <button type="submit" class="btn btn-outline-success" title="启用">
                                     <i class="bi bi-play"></i>
@@ -138,8 +141,6 @@
 
 <div class="mt-3 text-muted small">
     <i class="bi bi-info-circle"></i>
-    <i class="bi bi-cloud-download text-success"></i> 获取最新报价 &nbsp;
-    <i class="bi bi-clock-history text-info"></i> 抓取历史数据（默认 {{ default_history_years }} 年）
-    <span class="ms-2">建议先补足 {{ default_history_years }} 年历史，再进行回测。</span>
+    <span>“刷新所有报价”现在会同时执行：报价更新、待确认定投单生成、已到确认日订单自动入账。</span>
 </div>
 {% endblock %}

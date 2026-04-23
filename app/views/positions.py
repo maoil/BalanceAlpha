@@ -61,6 +61,8 @@ def refresh_api():
             "success": True,
             "updated": summary["updated"],
             "failed": summary["failed"],
+            "dca_created": summary.get("dca_created", 0),
+            "dca_confirmed": summary.get("dca_confirmed", 0),
             "positions": pos_data,
             "refresh_time": refresh_time.strftime("%H:%M:%S"),
         })

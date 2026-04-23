@@ -4,6 +4,8 @@
 统一导出所有模型，方便 import
 """
 from app.models.account import Account
+from app.models.dca_order import DcaOrder
+from app.models.dca_plan import DcaPlan
 from app.models.instrument import Instrument
 from app.models.strategy_template import StrategyTemplate
 from app.models.strategy_assignment import StrategyAssignment
@@ -17,6 +19,8 @@ from app.models.system_log import SystemLog
 
 __all__ = [
     "Account",
+    "DcaOrder",
+    "DcaPlan",
     "Instrument",
     "StrategyTemplate",
     "StrategyAssignment",

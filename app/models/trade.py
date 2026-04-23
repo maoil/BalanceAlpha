@@ -1,5 +1,5 @@
 """
-交易记录模型
+Confirmed trade records.
 """
 from app.extensions import db
 from app.models.base_model import CreatedAtMixin
@@ -18,12 +18,14 @@ class Trade(CreatedAtMixin, db.Model):
     price = db.Column(db.Float, default=0.0, comment="成交价/净值")
     amount = db.Column(db.Float, default=0.0, comment="成交金额")
     fee = db.Column(db.Float, default=0.0, comment="手续费")
-    reason_code = db.Column(db.String(100), default="", comment="原因码")
+    reason_code = db.Column(db.String(100), default="", comment="原因代码")
     notes = db.Column(db.Text, default="", comment="备注")
+    source_type = db.Column(db.String(30), default="", comment="来源类型")
+    source_id = db.Column(db.Integer, nullable=True, comment="来源记录 ID")
 
-    # 索引
     __table_args__ = (
         db.Index("idx_trades_account_date", "account_id", "trade_date"),
+        db.Index("idx_trades_source", "source_type", "source_id"),
     )
 
     def __repr__(self) -> str:
