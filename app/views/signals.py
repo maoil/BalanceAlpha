@@ -110,6 +110,34 @@ def signal_history():
     )
 
 
+def _load_signal_context(signal):
+    """
+    加载信号关联的持仓、行情、策略绑定上下文。
+
+    消除 rebalance_detail / api_rebalance_guidance 中重复的查询逻辑。
+    """
+    instrument = signal.instrument
+    account = signal.account
+
+    position = Position.query.filter_by(
+        account_id=account.id,
+        instrument_id=instrument.id,
+        position_status=PositionStatus.OPEN.value,
+    ).first()
+
+    latest_md = MarketData.query.filter_by(
+        instrument_id=instrument.id,
+    ).order_by(MarketData.trade_date.desc()).first()
+
+    assignment = StrategyAssignment.query.filter_by(
+        account_id=account.id,
+        instrument_id=instrument.id,
+        status="active",
+    ).first()
+
+    return position, latest_md, assignment
+
+
 @bp.route("/detail/<int:signal_id>")
 def rebalance_detail(signal_id):
     """
@@ -118,27 +146,7 @@ def rebalance_detail(signal_id):
     根据信号关联的产品、持仓、行情数据，计算具体的调仓步骤。
     """
     signal = Signal.query.get_or_404(signal_id)
-    instrument = signal.instrument
-    account = signal.account
-
-    # 获取当前持仓
-    position = Position.query.filter_by(
-        account_id=account.id,
-        instrument_id=instrument.id,
-        position_status=PositionStatus.OPEN.value,
-    ).first()
-
-    # 获取最新行情
-    latest_md = MarketData.query.filter_by(
-        instrument_id=instrument.id,
-    ).order_by(MarketData.trade_date.desc()).first()
-
-    # 获取策略绑定
-    assignment = StrategyAssignment.query.filter_by(
-        account_id=account.id,
-        instrument_id=instrument.id,
-        status="active",
-    ).first()
+    position, latest_md, assignment = _load_signal_context(signal)
 
     # 调用调仓建议服务（占位，待完善）
     rebalance_guide = SignalService.get_rebalance_guidance(
@@ -148,8 +156,8 @@ def rebalance_detail(signal_id):
         assignment=assignment,
     )
     version_history = SignalService.get_instrument_history(
-        instrument_id=instrument.id,
-        account_id=account.id,
+        instrument_id=signal.instrument.id,
+        account_id=signal.account.id,
         limit=10,
     )
     latest_ai_analysis = AIAnalysisService.get_latest_analysis(signal.id)
@@ -158,8 +166,8 @@ def rebalance_detail(signal_id):
     return render_template(
         "signals/detail.html",
         signal=signal,
-        instrument=instrument,
-        account=account,
+        instrument=signal.instrument,
+        account=signal.account,
         position=position,
         latest_md=latest_md,
         assignment=assignment,
@@ -220,27 +228,9 @@ def api_rebalance_guidance(signal_id):
     调仓建议 API（JSON 接口）
 
     返回渐进式调仓计划，供前端或其他服务调用。
-    后续可扩展为更详细的分步调仓方案。
     """
     signal = Signal.query.get_or_404(signal_id)
-    instrument = signal.instrument
-    account = signal.account
-
-    position = Position.query.filter_by(
-        account_id=account.id,
-        instrument_id=instrument.id,
-        position_status=PositionStatus.OPEN.value,
-    ).first()
-
-    latest_md = MarketData.query.filter_by(
-        instrument_id=instrument.id,
-    ).order_by(MarketData.trade_date.desc()).first()
-
-    assignment = StrategyAssignment.query.filter_by(
-        account_id=account.id,
-        instrument_id=instrument.id,
-        status="active",
-    ).first()
+    position, latest_md, assignment = _load_signal_context(signal)
 
     guidance = SignalService.get_rebalance_guidance(
         signal=signal,
@@ -253,14 +243,15 @@ def api_rebalance_guidance(signal_id):
         "signal_id": signal.id,
         "batch_version": signal.batch_version,
         "instrument": {
-            "symbol": instrument.symbol,
-            "name": instrument.name,
+            "symbol": signal.instrument.symbol,
+            "name": signal.instrument.name,
         },
         "account": {
-            "id": account.id,
-            "name": account.account_name,
-            "type": account.account_type,
+            "id": signal.account.id,
+            "name": signal.account.account_name,
+            "type": signal.account.account_type,
         },
         "guidance": guidance,
     })
+
 

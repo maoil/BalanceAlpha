@@ -1,6 +1,8 @@
 """
 策略绑定模型 - 产品与策略模板的绑定关系
 """
+import json
+
 from app.extensions import db
 from app.models.base_model import TimestampMixin
 
@@ -24,5 +26,20 @@ class StrategyAssignment(TimestampMixin, db.Model):
         db.UniqueConstraint("instrument_id", "account_id", name="uq_instrument_account"),
     )
 
+    def get_effective_config(self) -> dict:
+        """
+        获取合并后的有效策略参数。
+
+        模板基础参数 + 产品级覆盖参数，覆盖参数优先。
+        消除 signal_service / rebalance_guidance / backtest_service 中重复的解析逻辑。
+        """
+        from app.models.strategy_template import StrategyTemplate
+        template = db.session.get(StrategyTemplate, self.template_id)
+        config = json.loads(template.config_json) if template and template.config_json else {}
+        if self.custom_config_json:
+            config.update(json.loads(self.custom_config_json))
+        return config
+
     def __repr__(self) -> str:
         return f"<StrategyAssignment instrument={self.instrument_id} account={self.account_id}>"
+

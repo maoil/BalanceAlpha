@@ -60,15 +60,7 @@ class RebalanceGuidanceService:
         def _parse_config() -> dict:
             if not assignment:
                 return {}
-
-            template = db.session.get(StrategyTemplate, assignment.template_id)
-            config = json.loads(template.config_json) if template and template.config_json else {}
-            custom_config = (
-                json.loads(assignment.custom_config_json)
-                if assignment.custom_config_json else {}
-            )
-            config.update(custom_config)
-            return config
+            return assignment.get_effective_config()
 
         def _get_step_ratios(total_amount: float, is_tactical: bool) -> list[float]:
             if total_amount <= 0:

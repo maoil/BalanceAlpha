@@ -526,10 +526,8 @@ class BacktestService:
 
     @staticmethod
     def _load_config(template: Optional[StrategyTemplate], assignment: StrategyAssignment) -> dict:
-        config = json.loads(template.config_json) if template and template.config_json else {}
-        if assignment.custom_config_json:
-            config.update(json.loads(assignment.custom_config_json))
-        return config
+        """加载有效策略参数（委托给 model 方法）"""
+        return assignment.get_effective_config()
 
     @staticmethod
     def _refresh_positions(
