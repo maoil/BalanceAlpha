@@ -13,31 +13,11 @@ logger = logging.getLogger(__name__)
 
 bp = Blueprint("positions", __name__)
 
-# 记录上次刷新时间
-_last_refresh_time = None
-
 
 @bp.route("/")
 def list_positions():
-    """持仓列表"""
-    global _last_refresh_time
+    """持仓列表（不再同步刷新报价，改为前端 AJAX 异步刷新）"""
     account_id = request.args.get("account_id", type=int)
-    auto_refresh = request.args.get("auto", "1")  # 默认自动刷新
-
-    refresh_result = None
-
-    # 自动刷新：每次打开页面时拉取最新报价
-    if auto_refresh == "1":
-        try:
-            from app.services.fund_data_fetcher import FundDataFetcher
-            summary = FundDataFetcher.fetch_all_prices()
-            _last_refresh_time = datetime.now()
-            refresh_result = summary
-            if summary["updated"] > 0:
-                logger.info(f"自动刷新报价: 成功 {summary['updated']}, 失败 {summary['failed']}")
-        except Exception as e:
-            logger.error(f"自动刷新报价失败: {e}")
-            refresh_result = {"updated": 0, "failed": 0, "error": str(e)}
 
     positions = PositionService.get_all(account_id=account_id)
     accounts = AccountService.get_all()
@@ -49,19 +29,16 @@ def list_positions():
         accounts=accounts,
         instruments=instruments,
         selected_account_id=account_id,
-        refresh_result=refresh_result,
-        last_refresh_time=_last_refresh_time,
     )
 
 
 @bp.route("/refresh_api", methods=["POST"])
 def refresh_api():
     """API: AJAX 刷新报价（不刷新页面）"""
-    global _last_refresh_time
     try:
         from app.services.fund_data_fetcher import FundDataFetcher
         summary = FundDataFetcher.fetch_all_prices()
-        _last_refresh_time = datetime.now()
+        refresh_time = datetime.now()
 
         # 返回更新后的持仓数据
         positions = PositionService.get_all()
@@ -85,7 +62,7 @@ def refresh_api():
             "updated": summary["updated"],
             "failed": summary["failed"],
             "positions": pos_data,
-            "refresh_time": _last_refresh_time.strftime("%H:%M:%S"),
+            "refresh_time": refresh_time.strftime("%H:%M:%S"),
         })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -101,12 +78,17 @@ def create_position():
     如果产品不存在，自动创建
     """
     if request.method == "POST":
-        account_id = int(request.form["account_id"])
-        symbol = request.form["symbol"].strip()
-        name = request.form.get("name", "").strip()
-        quantity = float(request.form.get("quantity", 0))
-        market_price = float(request.form.get("market_price", 0))
-        unrealized_pnl = float(request.form.get("unrealized_pnl", 0))
+        try:
+            account_id = int(request.form["account_id"])
+            symbol = request.form["symbol"].strip()
+            name = request.form.get("name", "").strip()
+            quantity = float(request.form.get("quantity", 0))
+            market_price = float(request.form.get("market_price", 0))
+            unrealized_pnl = float(request.form.get("unrealized_pnl", 0))
+        except (ValueError, TypeError) as e:
+            flash(f"输入数据格式错误，请检查数字字段: {e}", "error")
+            accounts = AccountService.get_all()
+            return render_template("positions/create.html", accounts=accounts)
 
         if not symbol:
             flash("产品代码不能为空", "error")

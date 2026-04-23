@@ -39,25 +39,35 @@ def list_trades():
 def create_trade():
     """录入交易"""
     if request.method == "POST":
-        trade_date_str = request.form.get("trade_date", "")
-        trade_date = (
-            datetime.strptime(trade_date_str, "%Y-%m-%d").date()
-            if trade_date_str
-            else datetime.now().date()
-        )
+        try:
+            trade_date_str = request.form.get("trade_date", "")
+            trade_date = (
+                datetime.strptime(trade_date_str, "%Y-%m-%d").date()
+                if trade_date_str
+                else datetime.now().date()
+            )
 
-        data = {
-            "account_id": request.form["account_id"],
-            "instrument_id": request.form["instrument_id"],
-            "trade_date": trade_date,
-            "trade_type": request.form["trade_type"],
-            "quantity": request.form.get("quantity", 0),
-            "price": request.form.get("price", 0),
-            "amount": request.form.get("amount", 0),
-            "fee": request.form.get("fee", 0),
-            "reason_code": request.form.get("reason_code", ""),
-            "notes": request.form.get("notes", ""),
-        }
+            data = {
+                "account_id": request.form["account_id"],
+                "instrument_id": request.form["instrument_id"],
+                "trade_date": trade_date,
+                "trade_type": request.form["trade_type"],
+                "quantity": request.form.get("quantity", 0),
+                "price": request.form.get("price", 0),
+                "amount": request.form.get("amount", 0),
+                "fee": request.form.get("fee", 0),
+                "reason_code": request.form.get("reason_code", ""),
+                "notes": request.form.get("notes", ""),
+            }
+        except (ValueError, TypeError, KeyError) as e:
+            flash(f"输入数据格式错误: {e}", "error")
+            accounts = AccountService.get_all()
+            instruments = InstrumentService.get_all()
+            return render_template(
+                "trades/create.html",
+                accounts=accounts,
+                instruments=instruments,
+            )
 
         TradeService.create(data)
         flash("交易录入成功", "success")
