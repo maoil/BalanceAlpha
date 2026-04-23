@@ -8,6 +8,7 @@
         <div class="form-card">
             <h5 class="mb-4">{{ template.template_name }} <span class="badge bg-light text-dark">v{{ template.version }}</span></h5>
             <form method="post">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="row g-3">
                     <div class="col-md-12">
                         <label class="form-label">模板名称</label>

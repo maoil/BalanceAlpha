@@ -35,6 +35,16 @@ class ProductionConfig(Config):
     """生产环境配置"""
     DEBUG = False
 
+    @property
+    def SECRET_KEY(self):
+        key = os.getenv("SECRET_KEY")
+        if not key:
+            raise RuntimeError(
+                "生产环境必须通过环境变量 SECRET_KEY 设置密钥，"
+                "请运行: python -c \"import secrets; print(secrets.token_hex(32))\" 生成一个"
+            )
+        return key
+
 
 # 配置映射
 config_map = {

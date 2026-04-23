@@ -16,6 +16,7 @@
             <div class="card-header"><i class="bi bi-play-circle"></i> 新建回测</div>
             <div class="card-body">
                 <form method="post" action="{{ url_for('backtests.create_run') }}" class="row g-3">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="col-12">
                         <label class="form-label">回测名称</label>
                         <input type="text" name="run_name" class="form-control" placeholder="留空则自动生成">

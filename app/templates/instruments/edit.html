@@ -8,6 +8,7 @@
         <div class="form-card">
             <h5 class="mb-4">编辑产品: {{ instrument.symbol }} - {{ instrument.name }}</h5>
             <form method="post">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="row g-3">
                     <div class="col-md-4">
                         <label class="form-label">产品代码</label>

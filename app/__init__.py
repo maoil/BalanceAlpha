@@ -52,8 +52,10 @@ def create_app(config_name: str = None) -> Flask:
 
 def _init_extensions(app: Flask) -> None:
     """初始化 Flask 扩展"""
-    from app.extensions import db
+    from app.extensions import db, migrate, csrf
     db.init_app(app)
+    migrate.init_app(app, db)
+    csrf.init_app(app)
 
     # 在应用上下文中创建所有表
     with app.app_context():
@@ -62,6 +64,8 @@ def _init_extensions(app: Flask) -> None:
             Position, Trade, MarketData, Signal, BacktestRun, SystemLog,
         )
         db.create_all()
+        # NOTE: _ensure_runtime_schema 作为安全网保留，新字段应优先通过
+        # flask db migrate / flask db upgrade (Alembic) 管理
         _ensure_runtime_schema(db)
 
         # 自动创建种子数据（首次启动时）
