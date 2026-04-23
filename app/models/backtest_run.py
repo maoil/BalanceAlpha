@@ -1,12 +1,11 @@
 """
 回测记录模型
 """
-from datetime import datetime
-
 from app.extensions import db
+from app.models.base_model import CreatedAtMixin
 
 
-class BacktestRun(db.Model):
+class BacktestRun(CreatedAtMixin, db.Model):
     __tablename__ = "backtest_runs"
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
@@ -17,7 +16,6 @@ class BacktestRun(db.Model):
     params_json = db.Column(db.Text, default="{}", comment="参数JSON")
     result_json = db.Column(db.Text, default="{}", comment="结果JSON")
     status = db.Column(db.String(20), default="running", comment="状态")
-    created_at = db.Column(db.DateTime, default=datetime.now)
 
     def __repr__(self) -> str:
         return f"<BacktestRun {self.run_name} {self.status}>"

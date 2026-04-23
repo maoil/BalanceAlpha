@@ -1,12 +1,11 @@
 """
 策略信号模型
 """
-from datetime import datetime
-
 from app.extensions import db
+from app.models.base_model import CreatedAtMixin
 
 
-class Signal(db.Model):
+class Signal(CreatedAtMixin, db.Model):
     __tablename__ = "signals"
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
@@ -22,7 +21,6 @@ class Signal(db.Model):
     score = db.Column(db.Float, comment="评分(核心账户)")
     risk_flag = db.Column(db.String(50), default="", comment="风险标记")
     status = db.Column(db.String(20), default="pending", comment="状态")
-    created_at = db.Column(db.DateTime, default=datetime.now)
 
     # 索引
     __table_args__ = (

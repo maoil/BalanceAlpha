@@ -1,12 +1,11 @@
 """
 策略绑定模型 - 产品与策略模板的绑定关系
 """
-from datetime import datetime
-
 from app.extensions import db
+from app.models.base_model import TimestampMixin
 
 
-class StrategyAssignment(db.Model):
+class StrategyAssignment(TimestampMixin, db.Model):
     __tablename__ = "strategy_assignments"
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
@@ -19,8 +18,6 @@ class StrategyAssignment(db.Model):
     allow_rebalance = db.Column(db.Boolean, default=True, comment="是否参与再平衡")
     custom_config_json = db.Column(db.Text, default="{}", comment="产品级覆盖参数")
     status = db.Column(db.String(20), default="active", comment="状态")
-    created_at = db.Column(db.DateTime, default=datetime.now)
-    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
 
     # 唯一约束：同一产品在同一账户只有一个绑定
     __table_args__ = (

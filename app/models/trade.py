@@ -1,12 +1,11 @@
 """
 交易记录模型
 """
-from datetime import datetime
-
 from app.extensions import db
+from app.models.base_model import CreatedAtMixin
 
 
-class Trade(db.Model):
+class Trade(CreatedAtMixin, db.Model):
     __tablename__ = "trades"
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
@@ -21,7 +20,6 @@ class Trade(db.Model):
     fee = db.Column(db.Float, default=0.0, comment="手续费")
     reason_code = db.Column(db.String(100), default="", comment="原因码")
     notes = db.Column(db.Text, default="", comment="备注")
-    created_at = db.Column(db.DateTime, default=datetime.now)
 
     # 索引
     __table_args__ = (

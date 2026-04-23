@@ -1,9 +1,10 @@
 """
 持仓模型 - 当前持仓快照
 """
-from datetime import datetime, date
+from datetime import date
 
 from app.extensions import db
+from app.models.base_model import utcnow
 
 
 class Position(db.Model):
@@ -23,7 +24,7 @@ class Position(db.Model):
     weight_in_account = db.Column(db.Float, default=0.0, comment="账户内权重")
     position_status = db.Column(db.String(20), default="open", comment="状态: open/closed")
     opened_at = db.Column(db.Date, default=date.today, comment="首次建仓日期")
-    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
     # 唯一约束：同一账户同一产品只有一条持仓
     __table_args__ = (

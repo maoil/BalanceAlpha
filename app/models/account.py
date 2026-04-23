@@ -1,12 +1,11 @@
 """
 账户模型 - 逻辑账户（核心配置 / 战术轮动）
 """
-from datetime import datetime
-
 from app.extensions import db
+from app.models.base_model import TimestampMixin
 
 
-class Account(db.Model):
+class Account(TimestampMixin, db.Model):
     __tablename__ = "accounts"
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
@@ -15,8 +14,6 @@ class Account(db.Model):
     account_type = db.Column(db.String(20), nullable=False, comment="账户类型: core/tactical")
     description = db.Column(db.Text, default="", comment="描述")
     status = db.Column(db.String(20), default="active", comment="状态: active/disabled")
-    created_at = db.Column(db.DateTime, default=datetime.now)
-    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
 
     # 关系
     positions = db.relationship("Position", backref="account", lazy="dynamic")

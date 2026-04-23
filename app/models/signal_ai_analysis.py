@@ -1,12 +1,11 @@
 """
 策略建议 AI 分析结果模型
 """
-from datetime import datetime
-
 from app.extensions import db
+from app.models.base_model import TimestampMixin
 
 
-class SignalAIAnalysis(db.Model):
+class SignalAIAnalysis(TimestampMixin, db.Model):
     __tablename__ = "signal_ai_analysis"
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
@@ -76,8 +75,6 @@ class SignalAIAnalysis(db.Model):
         nullable=False,
         comment="错误信息",
     )
-    created_at = db.Column(db.DateTime, default=datetime.now)
-    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
 
     signal = db.relationship(
         "Signal",

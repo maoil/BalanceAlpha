@@ -1,12 +1,11 @@
 """
 产品模型 - 基金/ETF/LOF/现金
 """
-from datetime import datetime
-
 from app.extensions import db
+from app.models.base_model import TimestampMixin
 
 
-class Instrument(db.Model):
+class Instrument(TimestampMixin, db.Model):
     __tablename__ = "instruments"
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
@@ -20,8 +19,6 @@ class Instrument(db.Model):
     is_dca_eligible = db.Column(db.Boolean, default=False, comment="是否可定投")
     status = db.Column(db.String(20), default="active", comment="状态: watchlist/active/paused/closed/archived")
     notes = db.Column(db.Text, default="", comment="备注")
-    created_at = db.Column(db.DateTime, default=datetime.now)
-    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
 
     # 关系
     positions = db.relationship("Position", backref="instrument", lazy="dynamic")
