@@ -75,6 +75,7 @@ def _init_extensions(app: Flask) -> None:
 
 def _register_blueprints(app: Flask) -> None:
     """注册所有蓝图"""
+    from app.api import register_api
     from app.views.dashboard import bp as dashboard_bp
     from app.views.backtests import bp as backtests_bp
     from app.views.instruments import bp as instruments_bp
@@ -92,6 +93,7 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(signals_bp, url_prefix="/signals")
     app.register_blueprint(settings_bp, url_prefix="/settings")
     app.register_blueprint(logs_bp, url_prefix="/logs")
+    register_api(app)
 
 
 def _register_context_processors(app: Flask) -> None:
