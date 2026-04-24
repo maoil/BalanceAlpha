@@ -62,7 +62,7 @@ def _init_extensions(app: Flask) -> None:
         from app.models import (
             Account, Instrument, StrategyTemplate, StrategyAssignment,
             Position, Trade, MarketData, Signal, BacktestRun, SystemLog,
-            DcaPlan, DcaOrder,
+            DcaPlan, DcaOrder, ManualFundOrder,
         )
         db.create_all()
         # NOTE: _ensure_runtime_schema 作为安全网保留，新字段应优先通过

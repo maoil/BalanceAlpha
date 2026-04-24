@@ -101,6 +101,32 @@ def serialize_trade(trade) -> dict:
     }
 
 
+def serialize_manual_fund_order(order) -> dict:
+    return {
+        "id": order.id,
+        "account_id": order.account_id,
+        "instrument_id": order.instrument_id,
+        "account": serialize_account(order.account) if order.account else None,
+        "instrument": (
+            serialize_instrument(order.instrument) if order.instrument else None
+        ),
+        "order_date": _iso(order.order_date),
+        "expected_confirm_date": _iso(order.expected_confirm_date),
+        "actual_confirm_date": _iso(order.actual_confirm_date),
+        "amount": _number(order.amount),
+        "fee": _number(order.fee),
+        "confirm_nav": _number(order.confirm_nav),
+        "confirm_quantity": _number(order.confirm_quantity),
+        "quote_date_used": _iso(order.quote_date_used),
+        "status": order.status,
+        "reason_code": order.reason_code,
+        "notes": order.notes,
+        "linked_trade_id": order.linked_trade_id,
+        "created_at": _iso(getattr(order, "created_at", None)),
+        "updated_at": _iso(getattr(order, "updated_at", None)),
+    }
+
+
 def serialize_signal(signal) -> dict:
     return {
         "id": signal.id,
@@ -142,4 +168,3 @@ def serialize_strategy_template(template) -> dict:
         "created_at": _iso(template.created_at),
         "updated_at": _iso(template.updated_at),
     }
-

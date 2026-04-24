@@ -37,8 +37,16 @@ def health():
 def register_api(app):
     from app.extensions import csrf
 
-    from app.api import accounts, dashboard, instruments, positions, settings, signals, trades  # noqa: F401
+    from app.api import (  # noqa: F401
+        accounts,
+        dashboard,
+        instruments,
+        manual_fund_orders,
+        positions,
+        settings,
+        signals,
+        trades,
+    )
 
     csrf.exempt(bp)
     app.register_blueprint(bp)
-

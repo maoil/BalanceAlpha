@@ -1,4 +1,6 @@
-from datetime import date
+from datetime import date, timedelta
+
+from sqlalchemy import inspect, text
 
 from app.extensions import db
 from app.models.signal import Signal
@@ -230,3 +232,248 @@ def test_signal_guidance_api_loads_rebalance_context(client, factories, monkeypa
         "position_id": position.id,
         "market_data_id": market_data.id,
     }
+
+
+def test_manual_fund_buy_api_creates_pending_order_instead_of_trade(client, factories):
+    account = factories.create_account(
+        account_code="core-manual-fund",
+        account_name="Manual Fund",
+        account_type="core",
+    )
+    instrument = factories.create_instrument(
+        symbol="161725",
+        name="招商中证白酒",
+        instrument_type="fund",
+        trade_mode="eod_nav",
+    )
+    instrument.dca_confirm_cycle = 1
+    db.session.commit()
+
+    trade_date = date.today() - timedelta(days=1)
+    response = client.post(
+        "/api/v1/trades",
+        json={
+            "account_id": account.id,
+            "instrument_id": instrument.id,
+            "trade_date": trade_date.isoformat(),
+            "trade_type": "buy",
+            "amount": 1000,
+            "fee": 5,
+            "reason_code": "manual_entry",
+            "notes": "pending first",
+        },
+    )
+
+    assert response.status_code == 201
+    payload = response.get_json()["data"]
+    assert payload["status"] == "pending"
+    assert payload["amount"] == 1000
+    assert payload["fee"] == 5
+    assert payload["instrument"]["symbol"] == "161725"
+    assert Trade.query.count() == 0
+    assert inspect(db.engine).has_table("manual_fund_orders")
+    pending_count = db.session.execute(
+        text("SELECT COUNT(*) FROM manual_fund_orders")
+    ).scalar_one()
+    assert pending_count == 1
+
+
+def test_exchange_traded_buy_api_still_creates_trade(client, factories):
+    account = factories.create_account(
+        account_code="core-etf-buy",
+        account_name="ETF Buy",
+        account_type="core",
+    )
+    instrument = factories.create_instrument(
+        symbol="510300",
+        name="CSI 300 ETF",
+        instrument_type="etf",
+        trade_mode="exchange_traded",
+    )
+
+    response = client.post(
+        "/api/v1/trades",
+        json={
+            "account_id": account.id,
+            "instrument_id": instrument.id,
+            "trade_date": date.today().isoformat(),
+            "trade_type": "buy",
+            "quantity": 100,
+            "price": 2,
+            "amount": 200,
+        },
+    )
+
+    assert response.status_code == 201
+    payload = response.get_json()["data"]
+    assert payload["trade_type"] == "buy"
+    assert Trade.query.count() == 1
+    pending_count = db.session.execute(
+        text("SELECT COUNT(*) FROM manual_fund_orders")
+    ).scalar_one()
+    assert pending_count == 0
+
+
+def test_manual_fund_order_confirm_api_returns_not_ready_error_before_expected_date(
+    client, factories, monkeypatch
+):
+    from app.services.fund_data_fetcher import FundDataFetcher
+
+    account = factories.create_account(
+        account_code="core-manual-not-ready",
+        account_name="Manual Not Ready",
+        account_type="core",
+    )
+    instrument = factories.create_instrument(
+        symbol="163406",
+        name="兴全合润",
+        instrument_type="fund",
+        trade_mode="eod_nav",
+    )
+    instrument.dca_confirm_cycle = 2
+    db.session.commit()
+
+    create_response = client.post(
+        "/api/v1/trades",
+        json={
+            "account_id": account.id,
+            "instrument_id": instrument.id,
+            "trade_date": date.today().isoformat(),
+            "trade_type": "buy",
+            "amount": 1000,
+        },
+    )
+    order_id = create_response.get_json()["data"]["id"]
+
+    monkeypatch.setattr(
+        FundDataFetcher,
+        "get_realtime_nav",
+        staticmethod(lambda symbol: {"nav": 1.2, "nav_date": date.today()}),
+    )
+
+    response = client.post(f"/api/v1/manual-fund-orders/{order_id}/confirm")
+
+    assert response.status_code == 400
+    assert response.get_json()["error"]["code"] == "validation_error"
+    assert Trade.query.count() == 0
+
+
+def test_manual_fund_order_confirm_api_creates_trade_and_position_when_ready(
+    client, factories, monkeypatch
+):
+    from app.models.position import Position
+    from app.services.fund_data_fetcher import FundDataFetcher
+
+    account = factories.create_account(
+        account_code="core-manual-confirm",
+        account_name="Manual Confirm",
+        account_type="core",
+    )
+    instrument = factories.create_instrument(
+        symbol="161725-confirm",
+        name="Confirm Fund",
+        instrument_type="fund",
+        trade_mode="eod_nav",
+    )
+    instrument.dca_confirm_cycle = 1
+    db.session.commit()
+
+    create_response = client.post(
+        "/api/v1/trades",
+        json={
+            "account_id": account.id,
+            "instrument_id": instrument.id,
+            "trade_date": (date.today() - timedelta(days=3)).isoformat(),
+            "trade_type": "buy",
+            "amount": 1000,
+            "fee": 0,
+            "reason_code": "manual_confirm",
+            "notes": "confirm later",
+        },
+    )
+    order_id = create_response.get_json()["data"]["id"]
+
+    monkeypatch.setattr(
+        FundDataFetcher,
+        "get_realtime_nav",
+        staticmethod(lambda symbol: {"nav": 1.25, "nav_date": date.today()}),
+    )
+
+    response = client.post(f"/api/v1/manual-fund-orders/{order_id}/confirm")
+
+    assert response.status_code == 200
+    payload = response.get_json()["data"]
+    assert payload["order"]["status"] == "confirmed"
+    assert payload["trade"]["trade_type"] == "subscribe"
+    assert payload["trade"]["quantity"] == 800
+
+    trade = Trade.query.one()
+    assert trade.price == 1.25
+    assert trade.trade_date == date.today()
+    assert trade.reason_code == "manual_confirm"
+    assert trade.notes == "confirm later"
+
+    position = Position.query.one()
+    assert position.quantity == 800
+    assert position.avg_cost == 1.25
+
+    row = db.session.execute(
+        text(
+            "SELECT status, confirm_nav, confirm_quantity, linked_trade_id "
+            "FROM manual_fund_orders WHERE id = :order_id"
+        ),
+        {"order_id": order_id},
+    ).mappings().one()
+    assert row["status"] == "confirmed"
+    assert row["confirm_nav"] == 1.25
+    assert row["confirm_quantity"] == 800
+    assert row["linked_trade_id"] == trade.id
+
+
+def test_refresh_positions_auto_confirms_ready_manual_fund_orders(
+    client, factories, monkeypatch
+):
+    from app.services.fund_data_fetcher import FundDataFetcher
+
+    account = factories.create_account(
+        account_code="core-manual-refresh",
+        account_name="Manual Refresh",
+        account_type="core",
+    )
+    instrument = factories.create_instrument(
+        symbol="001938",
+        name="Refresh Fund",
+        instrument_type="fund",
+        trade_mode="eod_nav",
+    )
+    instrument.dca_confirm_cycle = 1
+    db.session.commit()
+
+    client.post(
+        "/api/v1/trades",
+        json={
+            "account_id": account.id,
+            "instrument_id": instrument.id,
+            "trade_date": (date.today() - timedelta(days=3)).isoformat(),
+            "trade_type": "buy",
+            "amount": 600,
+        },
+    )
+
+    monkeypatch.setattr(
+        FundDataFetcher,
+        "fetch_and_update_price",
+        staticmethod(lambda instrument_id: {"price": 1.0, "source": "test"}),
+    )
+    monkeypatch.setattr(
+        FundDataFetcher,
+        "get_realtime_nav",
+        staticmethod(lambda symbol: {"nav": 1.2, "nav_date": date.today()}),
+    )
+
+    response = client.post("/api/v1/positions/refresh")
+
+    assert response.status_code == 200
+    payload = response.get_json()["data"]
+    assert payload["summary"]["manual_fund_confirmed"] == 1
+    assert Trade.query.count() == 1

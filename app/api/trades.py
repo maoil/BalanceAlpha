@@ -4,7 +4,8 @@ from flask import request
 
 from app.api import bp
 from app.api.responses import error, success
-from app.schemas.serializers import serialize_trade
+from app.models.manual_fund_order import ManualFundOrder
+from app.schemas.serializers import serialize_manual_fund_order, serialize_trade
 from app.services.trade_service import TradeService
 
 
@@ -49,5 +50,7 @@ def create_trade():
     except (TypeError, ValueError) as exc:
         return error("validation_error", str(exc), 400)
 
-    return success(serialize_trade(trade), status=201)
+    if isinstance(trade, ManualFundOrder):
+        return success(serialize_manual_fund_order(trade), status=201)
 
+    return success(serialize_trade(trade), status=201)
