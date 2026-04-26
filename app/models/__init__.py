@@ -7,6 +7,7 @@ from app.models.account import Account
 from app.models.dca_order import DcaOrder
 from app.models.dca_plan import DcaPlan
 from app.models.instrument import Instrument
+from app.models.manual_fund_order import ManualFundOrder
 from app.models.strategy_template import StrategyTemplate
 from app.models.strategy_assignment import StrategyAssignment
 from app.models.position import Position
@@ -22,6 +23,7 @@ __all__ = [
     "DcaOrder",
     "DcaPlan",
     "Instrument",
+    "ManualFundOrder",
     "StrategyTemplate",
     "StrategyAssignment",
     "Position",

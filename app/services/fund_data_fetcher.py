@@ -997,6 +997,7 @@ class FundDataFetcher:
             {"updated": 更新数, "failed": 失败数, "details": [...]}
         """
         from app.models.instrument import Instrument
+        from app.services.manual_fund_order_service import ManualFundOrderService
         from app.services.dca_order_service import DcaOrderService
         from app.services.dca_plan_service import DcaPlanService
         from app.utils.constants import InstrumentStatus
@@ -1011,6 +1012,7 @@ class FundDataFetcher:
             "details": [],
             "dca_created": 0,
             "dca_confirmed": 0,
+            "manual_fund_confirmed": 0,
         }
 
         for inst in instruments:
@@ -1034,8 +1036,12 @@ class FundDataFetcher:
                     "error": "获取价格失败",
                 })
 
+        manual_confirmation = ManualFundOrderService.confirm_due_orders(
+            run_date=date.today()
+        )
         dca_generation = DcaPlanService.generate_due_orders(run_date=date.today())
         dca_confirmation = DcaOrderService.confirm_pending_orders(run_date=date.today())
+        summary["manual_fund_confirmed"] = manual_confirmation.get("confirmed", 0)
         summary["dca_created"] = dca_generation.get("created", 0)
         summary["dca_confirmed"] = dca_confirmation.get("confirmed", 0)
 

@@ -5,7 +5,9 @@ from typing import Optional
 from datetime import date, datetime
 
 from app.extensions import db
+from app.models.instrument import Instrument
 from app.models.trade import Trade
+from app.services.manual_fund_order_service import ManualFundOrderService
 from app.services.position_service import PositionService
 from app.services.log_service import LogService
 from app.utils.constants import TRADE_TYPE_SIDE_MAP, TradeType, TradeSide
@@ -49,7 +51,7 @@ class TradeService:
         return db.session.get(Trade, trade_id)
 
     @staticmethod
-    def create(data: dict) -> Trade:
+    def create(data: dict):
         """
         创建交易记录并自动更新持仓
 
@@ -69,6 +71,13 @@ class TradeService:
         if not side:
             trade_type_enum = TradeType(trade_type)
             side = TRADE_TYPE_SIDE_MAP.get(trade_type_enum, TradeSide.BUY).value
+
+        instrument = db.session.get(Instrument, int(data["instrument_id"]))
+        if instrument is None:
+            raise ValueError("Instrument not found")
+
+        if ManualFundOrderService.should_create_pending_order(instrument, side):
+            return ManualFundOrderService.create_pending_order(data, instrument)
 
         quantity = float(data.get("quantity", 0))
         price = float(data.get("price", 0))

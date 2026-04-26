@@ -62,7 +62,7 @@ def _init_extensions(app: Flask) -> None:
         from app.models import (
             Account, Instrument, StrategyTemplate, StrategyAssignment,
             Position, Trade, MarketData, Signal, BacktestRun, SystemLog,
-            DcaPlan, DcaOrder,
+            DcaPlan, DcaOrder, ManualFundOrder,
         )
         db.create_all()
         # NOTE: _ensure_runtime_schema 作为安全网保留，新字段应优先通过
@@ -75,6 +75,7 @@ def _init_extensions(app: Flask) -> None:
 
 def _register_blueprints(app: Flask) -> None:
     """注册所有蓝图"""
+    from app.api import register_api
     from app.views.dashboard import bp as dashboard_bp
     from app.views.backtests import bp as backtests_bp
     from app.views.instruments import bp as instruments_bp
@@ -92,6 +93,7 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(signals_bp, url_prefix="/signals")
     app.register_blueprint(settings_bp, url_prefix="/settings")
     app.register_blueprint(logs_bp, url_prefix="/logs")
+    register_api(app)
 
 
 def _register_context_processors(app: Flask) -> None:

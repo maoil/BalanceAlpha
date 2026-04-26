@@ -11,6 +11,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 class Config:
     """基础配置"""
     SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production")
+    API_CORS_ORIGINS = [
+        origin.strip()
+        for origin in os.getenv("API_CORS_ORIGINS", "http://localhost:5173").split(",")
+        if origin.strip()
+    ]
 
     # 数据库
     SQLALCHEMY_DATABASE_URI = os.getenv(
