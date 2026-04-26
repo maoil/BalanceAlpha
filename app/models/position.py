@@ -36,6 +36,14 @@ class Position(db.Model):
 
     def update_market_value(self) -> None:
         """根据最新价格更新市值和盈亏"""
+        if not self.quantity or self.quantity <= 0:
+            self.market_value = 0.0
+            self.unrealized_pnl = 0.0
+            self.unrealized_pnl_pct = 0.0
+            self.today_pnl = 0.0
+            self.weight_in_account = 0.0
+            return
+
         if self.market_price and self.quantity:
             self.market_value = self.quantity * self.market_price
             cost_value = self.quantity * self.avg_cost

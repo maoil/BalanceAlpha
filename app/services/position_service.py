@@ -61,7 +61,11 @@ class PositionService:
         quantity: float,
         price: float,
         commit: bool = True,
+        recalculate_weights: Optional[bool] = None,
     ) -> Position:
+        if recalculate_weights is None:
+            recalculate_weights = commit
+
         position = PositionService.get_or_create(
             account_id=account_id,
             instrument_id=instrument_id,
@@ -76,11 +80,17 @@ class PositionService:
             position.position_status = PositionStatus.OPEN.value
         else:
             position.quantity = max(0, position.quantity - quantity)
-            if position.quantity == 0:
-                position.position_status = PositionStatus.CLOSED.value
+            position.position_status = (
+                PositionStatus.CLOSED.value
+                if position.quantity == 0
+                else PositionStatus.OPEN.value
+            )
 
         position.market_price = price
         position.update_market_value()
+
+        if recalculate_weights:
+            PositionService.recalculate_weights()
 
         if commit:
             db.session.commit()
@@ -140,7 +150,13 @@ class PositionService:
             if field in data:
                 setattr(position, field, float(data[field]))
 
+        position.position_status = (
+            PositionStatus.OPEN.value
+            if (position.quantity or 0) > 0
+            else PositionStatus.CLOSED.value
+        )
         position.update_market_value()
+        PositionService.recalculate_weights()
         db.session.commit()
         return position
 
@@ -187,3 +203,81 @@ class PositionService:
         PositionService.recalculate_weights()
         db.session.commit()
         return position
+
+    @staticmethod
+    def sync_instrument_account(
+        instrument_id: int,
+        account_type: str,
+        commit: bool = True,
+    ) -> int:
+        from app.models.account import Account
+
+        target_account = Account.query.filter_by(
+            account_type=account_type,
+            status="active",
+        ).first()
+        if target_account is None:
+            raise ValueError(f"Active account not found for account type: {account_type}")
+
+        positions = Position.query.filter_by(
+            instrument_id=instrument_id,
+            position_status=PositionStatus.OPEN.value,
+        ).all()
+        if not positions:
+            return 0
+
+        moved_count = 0
+        target_position = Position.query.filter_by(
+            account_id=target_account.id,
+            instrument_id=instrument_id,
+        ).first()
+
+        for position in positions:
+            if position.account_id == target_account.id:
+                target_position = position
+                continue
+
+            moved_count += 1
+
+            if target_position is None:
+                position.account_id = target_account.id
+                target_position = position
+                continue
+
+            existing_qty = target_position.quantity or 0.0
+            incoming_qty = position.quantity or 0.0
+            total_qty = existing_qty + incoming_qty
+            total_cost = (
+                existing_qty * (target_position.avg_cost or 0.0)
+                + incoming_qty * (position.avg_cost or 0.0)
+            )
+
+            target_position.quantity = total_qty
+            target_position.avg_cost = total_cost / total_qty if total_qty > 0 else 0.0
+            if position.market_price:
+                target_position.market_price = position.market_price
+            if position.opened_at and (
+                target_position.opened_at is None
+                or position.opened_at < target_position.opened_at
+            ):
+                target_position.opened_at = position.opened_at
+            target_position.position_status = (
+                PositionStatus.OPEN.value
+                if total_qty > 0
+                else PositionStatus.CLOSED.value
+            )
+            target_position.update_market_value()
+
+            position.quantity = 0.0
+            position.position_status = PositionStatus.CLOSED.value
+            position.update_market_value()
+
+        if moved_count:
+            PositionService.recalculate_weights()
+
+        if commit:
+            db.session.commit()
+        else:
+            db.session.flush()
+
+        return moved_count

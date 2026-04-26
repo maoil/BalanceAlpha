@@ -3,6 +3,75 @@ from datetime import date
 from app.services.backtest_service import BacktestService
 
 
+def test_backtest_service_history_coverage_uses_full_pre_start_history(app, factories):
+    account = factories.create_account(
+        account_code="coverage-bt",
+        account_name="覆盖校验账户",
+        account_type="tactical",
+    )
+    template = factories.create_template(
+        template_code="coverage_template",
+        template_name="覆盖校验策略",
+        account_type="tactical",
+        version="1.0",
+        config={
+            "initial_position_pct": 0.40,
+            "add_confirm_pct": 0.05,
+            "add_position_pct": 0.30,
+            "entry_rs_threshold": 0.00,
+        },
+    )
+    instrument = factories.create_instrument(symbol="020485", name="软件指数C")
+    factories.create_assignment(
+        account_id=account.id,
+        instrument_id=instrument.id,
+        template_id=template.id,
+        lower=0.10,
+        upper=0.30,
+    )
+
+    for month in range(1, 13):
+        for day in range(1, 25):
+            factories.create_market_data(
+                instrument_id=instrument.id,
+                trade_date=date(2025, month, day),
+                close=1.0 + (month * 0.01),
+                ma20=1.0,
+                ma60=0.95,
+                relative_strength_20d=0.03,
+            )
+
+    for day in range(2, 7):
+        factories.create_market_data(
+            instrument_id=instrument.id,
+            trade_date=date(2026, 1, day),
+            close=1.2,
+            ma20=1.1,
+            ma60=1.0,
+            relative_strength_20d=0.05,
+        )
+
+    run = BacktestService.run_backtest(
+        run_name="覆盖校验回测",
+        account_id=account.id,
+        instrument_id=instrument.id,
+        template_id=template.id,
+        start_date=date(2026, 1, 2),
+        end_date=date(2026, 1, 6),
+        initial_capital=100000,
+        fee_rate=0.0,
+    )
+
+    result = BacktestService.parse_result(run)
+    coverage = result["history_coverage"]["coverage"][0]
+
+    assert result["history_coverage"]["has_warnings"] is False
+    assert coverage["warmup_ready"] is True
+    assert coverage["warmup_days"] == 288
+    assert coverage["first_trade_date"] == "2025-01-01"
+    assert coverage["backtest_days"] == 5
+
+
 def test_backtest_service_runs_tactical_strategy_and_records_trades(app, factories):
     account = factories.create_account(
         account_code="tactical-bt",

@@ -1,19 +1,21 @@
 """
-交易记录路由
+Trade record views.
 """
 from datetime import datetime
-from flask import Blueprint, render_template, request, redirect, url_for, flash
 
-from app.services.trade_service import TradeService
+from flask import Blueprint, flash, redirect, render_template, request, url_for
+
+from app.models.manual_fund_order import ManualFundOrder
 from app.services.account_service import AccountService
 from app.services.instrument_service import InstrumentService
+from app.services.trade_service import TradeService
 
 bp = Blueprint("trades", __name__)
 
 
 @bp.route("/")
 def list_trades():
-    """交易列表"""
+    """Trade list."""
     account_id = request.args.get("account_id", type=int)
     instrument_id = request.args.get("instrument_id", type=int)
 
@@ -37,7 +39,7 @@ def list_trades():
 
 @bp.route("/create", methods=["GET", "POST"])
 def create_trade():
-    """录入交易"""
+    """Manual trade entry."""
     if request.method == "POST":
         try:
             trade_date_str = request.form.get("trade_date", "")
@@ -59,8 +61,8 @@ def create_trade():
                 "reason_code": request.form.get("reason_code", ""),
                 "notes": request.form.get("notes", ""),
             }
-        except (ValueError, TypeError, KeyError) as e:
-            flash(f"输入数据格式错误: {e}", "error")
+        except (ValueError, TypeError, KeyError) as exc:
+            flash(f"\u8f93\u5165\u6570\u636e\u683c\u5f0f\u9519\u8bef: {exc}", "error")
             accounts = AccountService.get_all()
             instruments = InstrumentService.get_all()
             return render_template(
@@ -69,8 +71,14 @@ def create_trade():
                 instruments=instruments,
             )
 
-        TradeService.create(data)
-        flash("交易录入成功", "success")
+        result = TradeService.create(data)
+        if isinstance(result, ManualFundOrder):
+            flash(
+                "\u4ea4\u6613\u5df2\u4fdd\u5b58\uff0c\u5f85\u51c0\u503c\u786e\u8ba4\u540e\u518d\u66f4\u65b0\u6301\u4ed3",
+                "info",
+            )
+        else:
+            flash("\u4ea4\u6613\u5f55\u5165\u6210\u529f", "success")
         return redirect(url_for("trades.list_trades"))
 
     accounts = AccountService.get_all()

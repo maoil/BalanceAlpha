@@ -1,5 +1,6 @@
 from datetime import date, timedelta
 
+import pandas as pd
 from sqlalchemy import inspect, text
 
 from app.extensions import db
@@ -477,3 +478,102 @@ def test_refresh_positions_auto_confirms_ready_manual_fund_orders(
     payload = response.get_json()["data"]
     assert payload["summary"]["manual_fund_confirmed"] == 1
     assert Trade.query.count() == 1
+
+
+def test_refresh_positions_auto_confirms_ready_manual_fund_sell_orders(
+    client, factories, monkeypatch
+):
+    from app.models.position import Position
+    from app.services.fund_data_fetcher import FundDataFetcher
+    from app.services.trading_calendar_service import TradingCalendarService
+
+    account = factories.create_account(
+        account_code="core-manual-sell-refresh",
+        account_name="Manual Sell Refresh",
+        account_type="core",
+    )
+    instrument = factories.create_instrument(
+        symbol="001939",
+        name="Refresh Sell Fund",
+        instrument_type="fund",
+        trade_mode="eod_nav",
+    )
+    instrument.dca_confirm_cycle = 1
+    db.session.commit()
+
+    factories.create_position(
+        account_id=account.id,
+        instrument_id=instrument.id,
+        quantity=300,
+        avg_cost=1.0,
+        market_price=1.1,
+    )
+
+    sell_date = date(2026, 4, 20)
+    confirm_date = sell_date + timedelta(days=1)
+
+    monkeypatch.setattr(
+        TradingCalendarService,
+        "add_trading_days",
+        staticmethod(lambda current_date, offset: current_date + timedelta(days=offset)),
+    )
+    monkeypatch.setattr(
+        FundDataFetcher,
+        "get_fund_nav_history_extended",
+        staticmethod(lambda *args, **kwargs: pd.DataFrame()),
+    )
+    monkeypatch.setattr(
+        FundDataFetcher,
+        "get_realtime_nav",
+        staticmethod(lambda symbol: None),
+    )
+
+    create_response = client.post(
+        "/api/v1/trades",
+        json={
+            "account_id": account.id,
+            "instrument_id": instrument.id,
+            "trade_date": sell_date.isoformat(),
+            "trade_type": "sell",
+            "quantity": 120,
+            "fee": 0,
+        },
+    )
+
+    assert create_response.status_code == 201
+    assert create_response.get_json()["data"]["status"] == "pending"
+
+    monkeypatch.setattr(
+        FundDataFetcher,
+        "fetch_and_update_price",
+        staticmethod(lambda instrument_id: {"price": 1.05, "source": "test"}),
+    )
+    monkeypatch.setattr(
+        FundDataFetcher,
+        "get_fund_nav_history_extended",
+        staticmethod(
+            lambda *args, **kwargs: pd.DataFrame(
+                [
+                    {
+                        "trade_date": confirm_date,
+                        "nav": 1.2,
+                        "acc_nav": 1.2,
+                    }
+                ]
+            )
+        ),
+    )
+
+    response = client.post("/api/v1/positions/refresh")
+
+    assert response.status_code == 200
+    payload = response.get_json()["data"]
+    assert payload["summary"]["manual_fund_confirmed"] == 1
+
+    trade = Trade.query.one()
+    assert trade.side == "sell"
+    assert trade.trade_type == "redeem"
+    assert trade.price == 1.2
+
+    position = Position.query.one()
+    assert position.quantity == 180

@@ -4,7 +4,7 @@
 import json
 import logging
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date
 from statistics import mean, pstdev
 from typing import Optional
 
@@ -20,7 +20,6 @@ from app.utils.constants import AccountType, BacktestStatus, SignalType
 
 logger = logging.getLogger(__name__)
 BACKTEST_WARMUP_TRADING_DAYS = 250
-BACKTEST_WARMUP_CALENDAR_DAYS = 365
 
 
 @dataclass
@@ -259,11 +258,8 @@ class BacktestService:
                 Instrument.id.in_(instrument_ids)
             ).all()
         }
-        warmup_start = start_date - timedelta(days=BACKTEST_WARMUP_CALENDAR_DAYS)
-
         rows = MarketData.query.filter(
             MarketData.instrument_id.in_(instrument_ids),
-            MarketData.trade_date >= (start_date - timedelta(days=BACKTEST_WARMUP_CALENDAR_DAYS)),
             MarketData.trade_date <= end_date,
         ).order_by(
             MarketData.trade_date.asc(),
@@ -424,7 +420,6 @@ class BacktestService:
             rows=rows,
             start_date=start_date,
             end_date=end_date,
-            warmup_start=warmup_start,
         )
 
         final_positions = []
@@ -479,7 +474,6 @@ class BacktestService:
         rows: list[MarketData],
         start_date: date,
         end_date: date,
-        warmup_start: date,
     ) -> dict:
         rows_by_instrument: dict[int, list[MarketData]] = {}
         for row in rows:
@@ -487,18 +481,28 @@ class BacktestService:
 
         coverage = []
         has_warnings = False
+        pre_start_dates = sorted({
+            row.trade_date
+            for row in rows
+            if row.trade_date < start_date
+        })
+        if len(pre_start_dates) >= BACKTEST_WARMUP_TRADING_DAYS:
+            warmup_start = pre_start_dates[-BACKTEST_WARMUP_TRADING_DAYS]
+        else:
+            warmup_start = pre_start_dates[0] if pre_start_dates else None
+
         for assignment in assignments:
             instrument = instruments_by_id[assignment.instrument_id]
             instrument_rows = rows_by_instrument.get(assignment.instrument_id, [])
-            warmup_rows = [
+            pre_start_rows = [
                 row for row in instrument_rows
-                if warmup_start <= row.trade_date < start_date
+                if row.trade_date < start_date
             ]
             backtest_rows = [
                 row for row in instrument_rows
                 if start_date <= row.trade_date <= end_date
             ]
-            warmup_ready = len(warmup_rows) >= BACKTEST_WARMUP_TRADING_DAYS
+            warmup_ready = len(pre_start_rows) >= BACKTEST_WARMUP_TRADING_DAYS
             range_ready = len(backtest_rows) > 0
             warning = (not warmup_ready) or (not range_ready)
             has_warnings = has_warnings or warning
@@ -509,7 +513,7 @@ class BacktestService:
                 "name": instrument.name,
                 "first_trade_date": str(instrument_rows[0].trade_date) if instrument_rows else None,
                 "last_trade_date": str(instrument_rows[-1].trade_date) if instrument_rows else None,
-                "warmup_days": len(warmup_rows),
+                "warmup_days": len(pre_start_rows),
                 "warmup_ready": warmup_ready,
                 "backtest_days": len(backtest_rows),
                 "range_ready": range_ready,
@@ -518,7 +522,7 @@ class BacktestService:
 
         return {
             "warmup_trading_days": BACKTEST_WARMUP_TRADING_DAYS,
-            "warmup_start": str(warmup_start),
+            "warmup_start": str(warmup_start) if warmup_start else None,
             "has_warnings": has_warnings,
             "warning_count": sum(1 for item in coverage if item["warning"]),
             "coverage": coverage,

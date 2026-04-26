@@ -233,6 +233,48 @@ def _ensure_runtime_schema(db) -> None:
                 for statement in statements:
                     conn.execute(statement)
 
+    if "manual_fund_orders" in table_names:
+        columns = {
+            column["name"] for column in inspector.get_columns("manual_fund_orders")
+        }
+        statements = []
+        if "trade_type" not in columns:
+            statements.append(
+                text(
+                    'ALTER TABLE manual_fund_orders ADD COLUMN trade_type '
+                    'VARCHAR(30) DEFAULT "subscribe"'
+                )
+            )
+        if "side" not in columns:
+            statements.append(
+                text(
+                    'ALTER TABLE manual_fund_orders ADD COLUMN side '
+                    'VARCHAR(10) DEFAULT "buy"'
+                )
+            )
+        if "quantity" not in columns:
+            statements.append(
+                text("ALTER TABLE manual_fund_orders ADD COLUMN quantity FLOAT")
+            )
+        if statements:
+            with db.engine.begin() as conn:
+                for statement in statements:
+                    conn.execute(statement)
+
+        with db.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE manual_fund_orders SET trade_type = 'subscribe' "
+                    "WHERE trade_type IS NULL OR trade_type = ''"
+                )
+            )
+            conn.execute(
+                text(
+                    "UPDATE manual_fund_orders SET side = 'buy' "
+                    "WHERE side IS NULL OR side = ''"
+                )
+            )
+
 
 def _auto_seed(db) -> None:
     """

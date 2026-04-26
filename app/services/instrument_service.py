@@ -68,6 +68,8 @@ class InstrumentService:
         if not instrument:
             return None
 
+        original_account_type = instrument.default_account_type
+
         for field in [
             "name",
             "instrument_type",
@@ -85,6 +87,18 @@ class InstrumentService:
 
         if instrument.dca_confirm_cycle:
             instrument.dca_confirm_cycle = int(instrument.dca_confirm_cycle)
+
+        if (
+            "default_account_type" in data
+            and instrument.default_account_type != original_account_type
+        ):
+            from app.services.position_service import PositionService
+
+            PositionService.sync_instrument_account(
+                instrument_id=instrument.id,
+                account_type=instrument.default_account_type,
+                commit=False,
+            )
 
         db.session.commit()
 

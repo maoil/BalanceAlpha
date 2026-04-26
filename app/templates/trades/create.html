@@ -14,7 +14,7 @@
                         <label class="form-label">账户 *</label>
                         <select name="account_id" class="form-select" required>
                             {% for acc in accounts %}
-                            <option value="{{ acc.id }}">{{ acc.account_name }}</option>
+                            <option value="{{ acc.id }}" data-account-type="{{ acc.account_type }}">{{ acc.account_name }}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -22,7 +22,12 @@
                         <label class="form-label">产品 *</label>
                         <select name="instrument_id" class="form-select" required>
                             {% for inst in instruments %}
-                            <option value="{{ inst.id }}">{{ inst.symbol }} - {{ inst.name }}</option>
+                            <option value="{{ inst.id }}"
+                                    data-account-type="{{ inst.default_account_type }}"
+                                    data-trade-mode="{{ inst.trade_mode }}"
+                                    data-confirm-cycle="{{ inst.dca_confirm_cycle or 1 }}">
+                                {{ inst.symbol }} - {{ inst.name }}
+                            </option>
                             {% endfor %}
                         </select>
                     </div>
@@ -46,12 +51,13 @@
                         </select>
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label">数量 *</label>
+                        <label class="form-label">数量</label>
                         <input type="number" step="0.01" name="quantity" id="quantity" class="form-control" required>
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label">价格/净值 *</label>
-                        <input type="number" step="0.0001" name="price" id="price" class="form-control" required>
+                        <label class="form-label">价格/净值</label>
+                        <input type="number" step="0.0001" name="price" id="price" class="form-control">
+                        <div class="form-text" id="price-help"></div>
                     </div>
                     <div class="col-md-4">
                         <label class="form-label">金额（自动计算）</label>
@@ -63,7 +69,7 @@
                     </div>
                     <div class="col-md-6">
                         <label class="form-label">原因码</label>
-                        <input type="text" name="reason_code" class="form-control" placeholder="如 manual_buy, dca_weekly">
+                        <input type="text" name="reason_code" class="form-control" placeholder="如: manual_buy, dca_weekly">
                     </div>
                     <div class="col-md-6">
                         <label class="form-label">备注</label>
@@ -78,4 +84,132 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const instrumentSelect = document.querySelector('select[name="instrument_id"]');
+const accountSelect = document.querySelector('select[name="account_id"]');
+const tradeTypeSelect = document.querySelector('select[name="trade_type"]');
+const quantityInput = document.getElementById("quantity");
+const amountInput = document.getElementById("amount");
+const priceInput = document.getElementById("price");
+const priceHelp = document.getElementById("price-help");
+
+function selectedInstrumentOption() {
+    if (!instrumentSelect) {
+        return null;
+    }
+    return instrumentSelect.options[instrumentSelect.selectedIndex];
+}
+
+function syncAccountSelection() {
+    if (!instrumentSelect || !accountSelect) {
+        return;
+    }
+
+    const selectedInstrument = selectedInstrumentOption();
+    const accountType = selectedInstrument?.dataset.accountType;
+    if (!accountType) {
+        return;
+    }
+
+    const matchedOption = Array.from(accountSelect.options).find(
+        (option) => option.dataset.accountType === accountType
+    );
+    if (matchedOption) {
+        accountSelect.value = matchedOption.value;
+    }
+}
+
+function isAutoNavInstrument() {
+    const selectedInstrument = selectedInstrumentOption();
+    if (!selectedInstrument) {
+        return false;
+    }
+
+    const tradeMode = selectedInstrument.dataset.tradeMode;
+    const confirmCycle = Number(selectedInstrument.dataset.confirmCycle || 0);
+    return tradeMode === "eod_nav" && (confirmCycle === 1 || confirmCycle === 2);
+}
+
+function currentTradeSide() {
+    const tradeType = tradeTypeSelect?.value || "";
+    if (
+        tradeType === "sell" ||
+        tradeType === "redeem" ||
+        tradeType.endsWith("_sell")
+    ) {
+        return "sell";
+    }
+    return "buy";
+}
+
+function validateAutoNavBuyFields() {
+    if (!quantityInput || !amountInput) {
+        return;
+    }
+
+    if (!isAutoNavInstrument() || currentTradeSide() !== "buy") {
+        quantityInput.setCustomValidity("");
+        amountInput.setCustomValidity("");
+        return;
+    }
+
+    const hasQuantity = Number(quantityInput.value || 0) > 0;
+    const hasAmount = Number(amountInput.value || 0) > 0;
+    const message = hasQuantity || hasAmount
+        ? ""
+        : "场外 T+1/T+2 买入请至少填写数量或金额";
+
+    quantityInput.setCustomValidity(message);
+    amountInput.setCustomValidity(message);
+}
+
+function syncTradeInputs() {
+    const autoNav = isAutoNavInstrument();
+    const sellSide = currentTradeSide() === "sell";
+
+    if (priceInput) {
+        priceInput.required = !autoNav;
+        priceInput.placeholder = autoNav ? "可留空，系统将自动查询净值" : "";
+    }
+
+    if (priceHelp) {
+        priceHelp.textContent = autoNav
+            ? "T+1/T+2 产品未填写价格时，将自动查询确认净值；若暂时无净值，则先保存待确认，不更新持仓。"
+            : "";
+    }
+
+    if (quantityInput) {
+        quantityInput.required = !autoNav || sellSide;
+    }
+
+    if (amountInput) {
+        amountInput.required = false;
+    }
+
+    validateAutoNavBuyFields();
+}
+
+if (instrumentSelect) {
+    instrumentSelect.addEventListener("change", syncAccountSelection);
+    instrumentSelect.addEventListener("change", syncTradeInputs);
+    syncAccountSelection();
+}
+
+if (tradeTypeSelect) {
+    tradeTypeSelect.addEventListener("change", syncTradeInputs);
+}
+
+if (quantityInput) {
+    quantityInput.addEventListener("input", validateAutoNavBuyFields);
+}
+
+if (amountInput) {
+    amountInput.addEventListener("input", validateAutoNavBuyFields);
+}
+
+syncTradeInputs();
+</script>
 {% endblock %}
