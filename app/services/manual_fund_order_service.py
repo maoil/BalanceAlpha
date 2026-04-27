@@ -139,7 +139,8 @@ class ManualFundOrderService:
     @staticmethod
     def _fetch_confirm_quote(instrument, expected_confirm_date: date) -> Optional[dict]:
         from app.services.fund_data_fetcher import FundDataFetcher
-
+        if expected_confirm_date > date.today():
+            return None
         cached_quote = ManualFundOrderService._get_market_data_quote(
             instrument.id,
             expected_confirm_date,
@@ -288,12 +289,11 @@ class ManualFundOrderService:
             order_date,
             instrument,
         )
-        quote = None
-        if expected_confirm_date <= date.today():
-            quote = ManualFundOrderService._fetch_confirm_quote(
-                instrument,
-                expected_confirm_date,
-            )
+
+        quote = ManualFundOrderService._fetch_confirm_quote(
+            instrument,
+            expected_confirm_date,
+        )
 
         if not quote:
             return ManualFundOrderService.create_pending_order(data, instrument, side)
