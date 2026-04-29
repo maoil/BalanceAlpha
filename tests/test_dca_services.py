@@ -200,34 +200,33 @@ def test_fetch_all_prices_triggers_dca_generation_and_confirmation(app, factorie
     assert summary["dca_confirmed"] == 1
 
 
-def test_create_instrument_view_persists_dca_configuration(app, client, factories):
+def test_create_instrument_api_persists_dca_configuration(client, factories):
     from app.models.dca_plan import DcaPlan
     from app.models.instrument import Instrument
 
-    app.config["WTF_CSRF_ENABLED"] = False
     factories.create_account(
-        account_code="core-dca-view",
-        account_name="DCA View",
+        account_code="core-dca-api",
+        account_name="DCA API",
         account_type="core",
     )
 
     response = client.post(
-        "/instruments/create",
-        data={
+        "/api/v1/instruments",
+        json={
             "symbol": "002190",
             "name": "定投创建页基金",
             "instrument_type": "fund",
             "trade_mode": "eod_nav",
             "default_account_type": "core",
-            "is_dca_eligible": "on",
-            "dca_confirm_cycle": "2",
-            "dca_amount": "800",
-            "dca_schedule_day": "18",
+            "is_dca_eligible": True,
+            "dca_confirm_cycle": 2,
+            "dca_amount": 800,
+            "dca_schedule_day": 18,
             "status": "active",
         },
     )
 
-    assert response.status_code == 302
+    assert response.status_code == 201
 
     instrument = Instrument.query.filter_by(symbol="002190").one()
     plan = DcaPlan.query.filter_by(instrument_id=instrument.id).one()

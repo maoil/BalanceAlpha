@@ -1,9 +1,13 @@
+import json
 from datetime import date, timedelta
 
 import pandas as pd
 from sqlalchemy import inspect, text
 
 from app.extensions import db
+from app.models.backtest_run import BacktestRun
+from app.models.manual_fund_order import ManualFundOrder
+from app.models.signal_ai_analysis import SignalAIAnalysis
 from app.models.signal import Signal
 from app.models.trade import Trade
 
@@ -97,6 +101,196 @@ def test_dashboard_api_returns_aggregate_snapshot(app, client, factories, monkey
     assert payload["recent_trades"][0]["instrument"]["symbol"] == "510300"
     assert payload["pending_signals"][0]["signal_type"] == "hold"
     assert payload["market_sentiment"] == {"vix": {"value": 18.5}}
+
+
+def test_dashboard_asset_trend_api_returns_portfolio_history(client, factories):
+    account = factories.create_account(
+        account_code="core-trend",
+        account_name="Core Trend",
+        account_type="core",
+    )
+    first = factories.create_instrument(symbol="510300-trend", name="CSI 300 ETF")
+    second = factories.create_instrument(symbol="159915-trend", name="Growth ETF")
+    factories.create_position(
+        account_id=account.id,
+        instrument_id=first.id,
+        quantity=100,
+        avg_cost=2,
+        market_price=2.2,
+    )
+    factories.create_position(
+        account_id=account.id,
+        instrument_id=second.id,
+        quantity=50,
+        avg_cost=4,
+        market_price=4.4,
+    )
+    factories.create_market_data(
+        instrument_id=first.id,
+        trade_date=date(2026, 4, 20),
+        close=2.0,
+    )
+    factories.create_market_data(
+        instrument_id=second.id,
+        trade_date=date(2026, 4, 20),
+        close=4.0,
+    )
+    factories.create_market_data(
+        instrument_id=first.id,
+        trade_date=date(2026, 4, 21),
+        close=2.2,
+    )
+    factories.create_market_data(
+        instrument_id=second.id,
+        trade_date=date(2026, 4, 21),
+        close=4.4,
+    )
+
+    response = client.get("/api/v1/dashboard/asset-trend?days=30")
+
+    assert response.status_code == 200
+    payload = response.get_json()["data"]
+    assert payload["series"] == [
+        {
+            "date": "2026-04-20",
+            "total_assets": 400.0,
+            "net_value": 1.0,
+            "daily_return": 0.0,
+            "cumulative_return": 0.0,
+        },
+        {
+            "date": "2026-04-21",
+            "total_assets": 440.0,
+            "net_value": 1.1,
+            "daily_return": 0.1,
+            "cumulative_return": 0.1,
+        },
+    ]
+    assert payload["summary"]["total_return"] == 0.1
+
+
+def test_dashboard_performance_summary_api_returns_real_metrics(client, factories):
+    account = factories.create_account(
+        account_code="core-performance",
+        account_name="Core Performance",
+        account_type="core",
+    )
+    instrument = factories.create_instrument(
+        symbol="510500-performance",
+        name="CSI 500 ETF",
+    )
+    factories.create_position(
+        account_id=account.id,
+        instrument_id=instrument.id,
+        quantity=100,
+        avg_cost=2.0,
+        market_price=2.4,
+    )
+    factories.create_market_data(
+        instrument_id=instrument.id,
+        trade_date=date(2026, 4, 20),
+        close=2.2,
+    )
+    factories.create_market_data(
+        instrument_id=instrument.id,
+        trade_date=date(2026, 4, 21),
+        close=2.4,
+    )
+    db.session.add(
+        Trade(
+            account_id=account.id,
+            instrument_id=instrument.id,
+            trade_date=date(2026, 1, 1),
+            trade_type="buy",
+            side="buy",
+            quantity=100,
+            price=2.0,
+            amount=200,
+        )
+    )
+    db.session.commit()
+
+    response = client.get("/api/v1/dashboard/performance-summary")
+
+    assert response.status_code == 200
+    payload = response.get_json()["data"]
+    assert payload["total_assets"] == 240.0
+    assert payload["total_cost"] == 200.0
+    assert payload["today_pnl"] == 20.0
+    assert payload["change_vs_yesterday"] == 20.0
+    assert payload["change_pct_vs_yesterday"] == 0.0909
+    assert payload["cumulative_return"] == 0.2
+    assert payload["as_of_date"] == "2026-04-21"
+    assert payload["annualized_return"] > 0
+
+
+def test_strategies_performance_api_returns_strategy_metrics(client, factories):
+    account = factories.create_account(
+        account_code="core-strategy-performance",
+        account_name="Core Strategy Performance",
+        account_type="core",
+    )
+    template = factories.create_template(
+        template_code="strategy-performance-template",
+        template_name="Strategy Performance",
+        account_type="core",
+        config={"target_weight_lower": 0.1},
+    )
+    instrument = factories.create_instrument(
+        symbol="512880-strategy",
+        name="Broker ETF",
+    )
+    factories.create_assignment(
+        account_id=account.id,
+        instrument_id=instrument.id,
+        template_id=template.id,
+        lower=0.1,
+        upper=0.2,
+    )
+    closes = [10.0, 11.0, 10.5, 12.0]
+    for offset, close in enumerate(closes):
+        factories.create_market_data(
+            instrument_id=instrument.id,
+            trade_date=date(2026, 4, 20 + offset),
+            close=close,
+        )
+
+    response = client.get("/api/v1/strategies/performance?days=7")
+
+    assert response.status_code == 200
+    payload = response.get_json()["data"]
+    assert payload[0]["strategy_name"] == "Strategy Performance"
+    assert payload[0]["return_7d"] == 0.2
+    assert payload[0]["win_rate"] == 0.6667
+    assert payload[0]["max_drawdown"] == -0.0455
+    assert payload[0]["status"] == "active"
+
+
+def test_market_vix_history_api_returns_history_series(client, monkeypatch):
+    from app.services.market_sentiment_service import MarketSentimentService
+
+    monkeypatch.setattr(
+        MarketSentimentService,
+        "get_vix_history",
+        classmethod(
+            lambda cls, days=30, interval="daily": {
+                "series": [
+                    {"date": "2026-04-20", "value": 18.1},
+                    {"date": "2026-04-21", "value": 19.2},
+                ],
+                "range": "30d",
+                "interval": interval,
+                "source": "test",
+            }
+        ),
+    )
+
+    response = client.get("/api/v1/market/vix/history?days=30")
+
+    assert response.status_code == 200
+    payload = response.get_json()["data"]
+    assert payload["series"][0]["value"] == 18.1
+    assert payload["range"] == "30d"
 
 
 def test_positions_api_lists_and_filters_positions(client, factories):
@@ -235,7 +429,11 @@ def test_signal_guidance_api_loads_rebalance_context(client, factories, monkeypa
     }
 
 
-def test_manual_fund_buy_api_creates_pending_order_instead_of_trade(client, factories):
+def test_manual_fund_buy_api_creates_pending_order_instead_of_trade(
+    client, factories, monkeypatch
+):
+    from app.services.fund_data_fetcher import FundDataFetcher
+
     account = factories.create_account(
         account_code="core-manual-fund",
         account_name="Manual Fund",
@@ -249,6 +447,17 @@ def test_manual_fund_buy_api_creates_pending_order_instead_of_trade(client, fact
     )
     instrument.dca_confirm_cycle = 1
     db.session.commit()
+
+    monkeypatch.setattr(
+        FundDataFetcher,
+        "get_fund_nav_history_extended",
+        staticmethod(lambda *args, **kwargs: pd.DataFrame()),
+    )
+    monkeypatch.setattr(
+        FundDataFetcher,
+        "get_realtime_nav",
+        staticmethod(lambda symbol: None),
+    )
 
     trade_date = date.today() - timedelta(days=1)
     response = client.post(
@@ -379,6 +588,17 @@ def test_manual_fund_order_confirm_api_creates_trade_and_position_when_ready(
     instrument.dca_confirm_cycle = 1
     db.session.commit()
 
+    monkeypatch.setattr(
+        FundDataFetcher,
+        "get_fund_nav_history_extended",
+        staticmethod(lambda *args, **kwargs: pd.DataFrame()),
+    )
+    monkeypatch.setattr(
+        FundDataFetcher,
+        "get_realtime_nav",
+        staticmethod(lambda symbol: None),
+    )
+
     create_response = client.post(
         "/api/v1/trades",
         json={
@@ -449,6 +669,17 @@ def test_refresh_positions_auto_confirms_ready_manual_fund_orders(
     )
     instrument.dca_confirm_cycle = 1
     db.session.commit()
+
+    monkeypatch.setattr(
+        FundDataFetcher,
+        "get_fund_nav_history_extended",
+        staticmethod(lambda *args, **kwargs: pd.DataFrame()),
+    )
+    monkeypatch.setattr(
+        FundDataFetcher,
+        "get_realtime_nav",
+        staticmethod(lambda symbol: None),
+    )
 
     client.post(
         "/api/v1/trades",
@@ -577,3 +808,379 @@ def test_refresh_positions_auto_confirms_ready_manual_fund_sell_orders(
 
     position = Position.query.one()
     assert position.quantity == 180
+
+
+def test_instrument_page_actions_have_api_equivalents(client, factories, monkeypatch):
+    from app.services.fund_data_fetcher import FundDataFetcher
+
+    instrument = factories.create_instrument(symbol="510300", name="CSI 300 ETF")
+
+    monkeypatch.setattr(
+        FundDataFetcher,
+        "search_fund",
+        staticmethod(lambda keyword: [{"symbol": keyword, "name": "CSI 300 ETF"}]),
+    )
+    monkeypatch.setattr(
+        FundDataFetcher,
+        "get_fund_info",
+        staticmethod(lambda fund_code: {"symbol": fund_code, "name": "CSI 300 ETF"}),
+    )
+    monkeypatch.setattr(
+        FundDataFetcher,
+        "fetch_and_update_price",
+        staticmethod(lambda instrument_id: {"price": 4.2, "source": "test"}),
+    )
+    monkeypatch.setattr(
+        FundDataFetcher,
+        "fetch_and_import_history",
+        staticmethod(
+            lambda instrument_id, days: {
+                "days_requested": days,
+                "imported": 2,
+                "skipped": 1,
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        FundDataFetcher,
+        "fetch_all_prices",
+        staticmethod(lambda: {"updated": 1, "failed": 0, "dca_created": 0}),
+    )
+
+    search_response = client.get("/api/v1/instruments/search-fund?keyword=510300")
+    assert search_response.status_code == 200
+    assert search_response.get_json()["data"][0]["symbol"] == "510300"
+
+    info_response = client.get("/api/v1/instruments/fund-info/510300")
+    assert info_response.status_code == 200
+    assert info_response.get_json()["data"]["name"] == "CSI 300 ETF"
+
+    price_response = client.post(f"/api/v1/instruments/{instrument.id}/fetch-price")
+    assert price_response.status_code == 200
+    assert price_response.get_json()["data"] == {"price": 4.2, "source": "test"}
+
+    history_response = client.post(
+        f"/api/v1/instruments/{instrument.id}/fetch-history",
+        json={"days": 30},
+    )
+    assert history_response.status_code == 200
+    assert history_response.get_json()["data"]["days_requested"] == 30
+
+    all_prices_response = client.post("/api/v1/instruments/fetch-all-prices")
+    assert all_prices_response.status_code == 200
+    assert all_prices_response.get_json()["data"]["updated"] == 1
+
+    status_response = client.patch(
+        f"/api/v1/instruments/{instrument.id}/status",
+        json={"status": "disabled"},
+    )
+    assert status_response.status_code == 200
+    assert status_response.get_json()["data"]["status"] == "disabled"
+
+
+def test_position_manual_create_and_price_refresh_apis(client, factories):
+    account = factories.create_account(
+        account_code="core-manual-position",
+        account_name="Core Manual Position",
+        account_type="core",
+    )
+
+    create_response = client.post(
+        "/api/v1/positions",
+        json={
+            "account_id": account.id,
+            "symbol": "588080",
+            "name": "Science ETF",
+            "instrument_type": "etf",
+            "quantity": 100,
+            "market_price": 2.5,
+            "unrealized_pnl": 50,
+        },
+    )
+
+    assert create_response.status_code == 201
+    created = create_response.get_json()["data"]
+    assert created["quantity"] == 100
+    assert created["avg_cost"] == 2.0
+    assert created["instrument"]["symbol"] == "588080"
+
+    factories.create_market_data(
+        instrument_id=created["instrument_id"],
+        trade_date=date(2026, 4, 24),
+        close=2.8,
+    )
+
+    refresh_response = client.post("/api/v1/positions/refresh-prices")
+
+    assert refresh_response.status_code == 200
+    payload = refresh_response.get_json()["data"]
+    assert payload["updated"] == 1
+    assert payload["positions"][0]["market_price"] == 2.8
+
+
+def test_trade_detail_api_returns_single_trade(client, factories):
+    account = factories.create_account(
+        account_code="core-trade-detail",
+        account_name="Core Trade Detail",
+    )
+    instrument = factories.create_instrument(symbol="510050", name="SSE 50 ETF")
+    trade = Trade(
+        account_id=account.id,
+        instrument_id=instrument.id,
+        trade_date=date(2026, 4, 23),
+        trade_type="buy",
+        side="buy",
+        quantity=100,
+        price=3,
+        amount=300,
+    )
+    db.session.add(trade)
+    db.session.commit()
+
+    response = client.get(f"/api/v1/trades/{trade.id}")
+
+    assert response.status_code == 200
+    payload = response.get_json()["data"]
+    assert payload["id"] == trade.id
+    assert payload["instrument"]["symbol"] == "510050"
+
+
+def test_signal_history_and_ai_analysis_apis(client, factories, monkeypatch):
+    from app.services.ai_analysis_service import AIAnalysisService
+
+    account = factories.create_account(
+        account_code="core-signal-api",
+        account_name="Core Signal API",
+    )
+    instrument = factories.create_instrument(symbol="512000", name="Broker ETF")
+    signal = Signal(
+        account_id=account.id,
+        instrument_id=instrument.id,
+        signal_date=date(2026, 4, 22),
+        signal_type="hold",
+        priority=5,
+        reason_code="test",
+        explanation="Hold",
+        status="pending",
+        batch_version=2,
+    )
+    db.session.add(signal)
+    db.session.commit()
+    analysis = SignalAIAnalysis(
+        signal_id=signal.id,
+        model_name="test-model",
+        summary="Steady hold",
+        confidence=0.8,
+        status="success",
+        output_json=json.dumps({"risk": "low"}),
+    )
+    db.session.add(analysis)
+    db.session.commit()
+
+    history_response = client.get(
+        f"/api/v1/signals/history?instrument_id={instrument.id}&account_id={account.id}"
+    )
+    assert history_response.status_code == 200
+    assert history_response.get_json()["data"][0]["id"] == signal.id
+
+    latest_response = client.get(f"/api/v1/signals/{signal.id}/ai-analysis")
+    assert latest_response.status_code == 200
+    latest_payload = latest_response.get_json()["data"]
+    assert latest_payload["summary"] == "Steady hold"
+    assert latest_payload["output"] == {"risk": "low"}
+
+    monkeypatch.setattr(
+        AIAnalysisService,
+        "create_analysis",
+        staticmethod(lambda signal_id: analysis),
+    )
+    create_response = client.post(f"/api/v1/signals/{signal.id}/ai-analysis")
+    assert create_response.status_code == 201
+    assert create_response.get_json()["data"]["id"] == analysis.id
+
+    monkeypatch.setattr(
+        AIAnalysisService,
+        "create_batch_analysis",
+        staticmethod(lambda signals: {"success": len(signals), "error": 0}),
+    )
+    batch_response = client.post(
+        "/api/v1/signals/ai-analysis/batch",
+        json={"account_id": account.id},
+    )
+    assert batch_response.status_code == 200
+    assert batch_response.get_json()["data"] == {"success": 1, "error": 0}
+
+
+def test_strategy_template_detail_and_update_api_logs_change(client, factories):
+    template = factories.create_template(
+        template_code="core-api-template",
+        template_name="Core API Template",
+        account_type="core",
+        config={"target_weight_lower": 0.1},
+        version="1.0",
+    )
+
+    detail_response = client.get(f"/api/v1/settings/strategy-templates/{template.id}")
+    assert detail_response.status_code == 200
+    assert detail_response.get_json()["data"]["template_code"] == "core-api-template"
+
+    update_response = client.patch(
+        f"/api/v1/settings/strategy-templates/{template.id}",
+        json={
+            "template_name": "Updated Template",
+            "description": "updated",
+            "config": {"target_weight_lower": 0.2},
+        },
+    )
+
+    assert update_response.status_code == 200
+    payload = update_response.get_json()["data"]
+    assert payload["template_name"] == "Updated Template"
+    assert payload["config"] == {"target_weight_lower": 0.2}
+    assert payload["version"] == "1.1"
+
+    log_count = db.session.execute(
+        text("SELECT COUNT(*) FROM system_logs WHERE log_type = 'param_change'")
+    ).scalar_one()
+    assert log_count == 1
+
+
+def test_backtest_page_apis_list_create_and_show_detail(
+    client, factories, monkeypatch
+):
+    from app.services.backtest_service import BacktestService
+
+    account = factories.create_account(
+        account_code="core-backtest-api",
+        account_name="Core Backtest API",
+    )
+    run = BacktestRun(
+        run_name="Existing Run",
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 31),
+        params_json=json.dumps({"account_id": account.id}),
+        result_json=json.dumps({"summary": {"final_equity": 101000}}),
+        status="completed",
+    )
+    db.session.add(run)
+    db.session.commit()
+
+    list_response = client.get("/api/v1/backtests")
+    assert list_response.status_code == 200
+    assert list_response.get_json()["data"][0]["run_name"] == "Existing Run"
+
+    def fake_run_backtest(**kwargs):
+        created = BacktestRun(
+            run_name=kwargs["run_name"],
+            start_date=kwargs["start_date"],
+            end_date=kwargs["end_date"],
+            params_json=json.dumps({"initial_capital": kwargs["initial_capital"]}),
+            result_json=json.dumps({"summary": {"final_equity": 100500}}),
+            status="completed",
+        )
+        db.session.add(created)
+        db.session.commit()
+        return created
+
+    monkeypatch.setattr(
+        BacktestService,
+        "run_backtest",
+        staticmethod(fake_run_backtest),
+    )
+
+    create_response = client.post(
+        "/api/v1/backtests",
+        json={
+            "run_name": "API Run",
+            "account_id": account.id,
+            "start_date": "2026-01-01",
+            "end_date": "2026-01-31",
+            "initial_capital": 100000,
+            "fee_rate": 0.001,
+        },
+    )
+    assert create_response.status_code == 201
+    created_payload = create_response.get_json()["data"]
+    assert created_payload["run_name"] == "API Run"
+    assert created_payload["params"] == {"initial_capital": 100000}
+
+    detail_response = client.get(f"/api/v1/backtests/{run.id}")
+    assert detail_response.status_code == 200
+    assert detail_response.get_json()["data"]["result"]["summary"]["final_equity"] == 101000
+
+
+def test_logs_api_filters_system_logs(client):
+    from app.services.log_service import LogService
+
+    LogService.log(
+        log_type="param_change",
+        level="info",
+        module="settings",
+        message="template updated",
+        context={"template_id": 1},
+    )
+    LogService.log(
+        log_type="signal",
+        level="warning",
+        module="signals",
+        message="ignored",
+    )
+
+    response = client.get("/api/v1/logs?log_type=param_change&level=info&limit=5")
+
+    assert response.status_code == 200
+    payload = response.get_json()["data"]
+    assert len(payload) == 1
+    assert payload[0]["message"] == "template updated"
+    assert payload[0]["context"] == {"template_id": 1}
+
+
+def test_manual_fund_order_list_and_detail_apis(client, factories):
+    account = factories.create_account(
+        account_code="core-order-api",
+        account_name="Core Order API",
+    )
+    instrument = factories.create_instrument(
+        symbol="161725-api",
+        name="Order Fund",
+        instrument_type="fund",
+        trade_mode="eod_nav",
+    )
+    order = ManualFundOrder(
+        account_id=account.id,
+        instrument_id=instrument.id,
+        order_date=date(2026, 4, 20),
+        expected_confirm_date=date(2026, 4, 21),
+        trade_type="subscribe",
+        side="buy",
+        amount=1000,
+        status="pending",
+    )
+    confirmed_order = ManualFundOrder(
+        account_id=account.id,
+        instrument_id=instrument.id,
+        order_date=date(2026, 4, 18),
+        expected_confirm_date=date(2026, 4, 19),
+        actual_confirm_date=date(2026, 4, 19),
+        trade_type="subscribe",
+        side="buy",
+        amount=500,
+        status="confirmed",
+    )
+    db.session.add_all([order, confirmed_order])
+    db.session.commit()
+
+    list_response = client.get(
+        f"/api/v1/manual-fund-orders?account_id={account.id}&status=pending"
+    )
+    assert list_response.status_code == 200
+    assert list_response.get_json()["data"][0]["id"] == order.id
+
+    detail_response = client.get(f"/api/v1/manual-fund-orders/{order.id}")
+    assert detail_response.status_code == 200
+    assert detail_response.get_json()["data"]["instrument"]["symbol"] == "161725-api"
+
+    all_response = client.get(f"/api/v1/manual-fund-orders?account_id={account.id}")
+    assert all_response.status_code == 200
+    statuses = {item["status"] for item in all_response.get_json()["data"]}
+    assert statuses == {"pending", "confirmed"}

@@ -23,6 +23,7 @@ env/
 
 # Database
 data/*.db
+data/test_dbs/
 
 # OS
 .DS_Store

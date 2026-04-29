@@ -39,12 +39,16 @@ def register_api(app):
 
     from app.api import (  # noqa: F401
         accounts,
+        backtests,
         dashboard,
         instruments,
+        logs,
+        market,
         manual_fund_orders,
         positions,
         settings,
         signals,
+        strategies,
         trades,
     )
 

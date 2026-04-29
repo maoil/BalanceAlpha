@@ -54,3 +54,11 @@ def create_trade():
         return success(serialize_manual_fund_order(trade), status=201)
 
     return success(serialize_trade(trade), status=201)
+
+
+@bp.get("/trades/<int:trade_id>")
+def get_trade(trade_id: int):
+    trade = TradeService.get_by_id(trade_id)
+    if trade is None:
+        return error("not_found", "Trade not found", 404)
+    return success(serialize_trade(trade))

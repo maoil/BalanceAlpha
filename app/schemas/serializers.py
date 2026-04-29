@@ -11,6 +11,17 @@ def _number(value: Any) -> Any:
     return value if value is not None else None
 
 
+def _json(value: str | None, default: Any = None) -> Any:
+    if default is None:
+        default = {}
+    if not value:
+        return default
+    try:
+        return json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return default
+
+
 def serialize_account(account) -> dict:
     return {
         "id": account.id,
@@ -154,20 +165,66 @@ def serialize_signal(signal) -> dict:
 
 
 def serialize_strategy_template(template) -> dict:
-    try:
-        config = json.loads(template.config_json or "{}")
-    except json.JSONDecodeError:
-        config = {}
-
     return {
         "id": template.id,
         "template_code": template.template_code,
         "template_name": template.template_name,
         "account_type": template.account_type,
         "description": template.description,
-        "config": config,
+        "config": _json(template.config_json, {}),
         "version": template.version,
         "status": template.status,
         "created_at": _iso(template.created_at),
         "updated_at": _iso(template.updated_at),
+    }
+
+
+def serialize_signal_ai_analysis(analysis) -> dict | None:
+    if analysis is None:
+        return None
+
+    return {
+        "id": analysis.id,
+        "signal_id": analysis.signal_id,
+        "analysis_type": analysis.analysis_type,
+        "provider": analysis.provider,
+        "model_name": analysis.model_name,
+        "prompt_version": analysis.prompt_version,
+        "summary": analysis.summary,
+        "confidence": _number(analysis.confidence),
+        "status": analysis.status,
+        "error_message": analysis.error_message,
+        "input_snapshot": _json(analysis.input_snapshot_json, {}),
+        "output": _json(analysis.output_json, {}),
+        "created_at": _iso(getattr(analysis, "created_at", None)),
+        "updated_at": _iso(getattr(analysis, "updated_at", None)),
+    }
+
+
+def serialize_backtest_run(run) -> dict:
+    result = _json(run.result_json, {})
+    return {
+        "id": run.id,
+        "run_name": run.run_name,
+        "template_id": run.template_id,
+        "template": serialize_strategy_template(run.template) if run.template else None,
+        "start_date": _iso(run.start_date),
+        "end_date": _iso(run.end_date),
+        "params": _json(run.params_json, {}),
+        "result": result,
+        "summary": result.get("summary", {}) if isinstance(result, dict) else {},
+        "status": run.status,
+        "created_at": _iso(getattr(run, "created_at", None)),
+    }
+
+
+def serialize_system_log(log) -> dict:
+    return {
+        "id": log.id,
+        "log_type": log.log_type,
+        "level": log.level,
+        "module": log.module,
+        "message": log.message,
+        "context": _json(log.context_json, {}),
+        "created_at": _iso(getattr(log, "created_at", None)),
     }

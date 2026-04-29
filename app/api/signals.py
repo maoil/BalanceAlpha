@@ -9,7 +9,8 @@ from app.models.market_data import MarketData
 from app.models.position import Position
 from app.models.signal import Signal
 from app.models.strategy_assignment import StrategyAssignment
-from app.schemas.serializers import serialize_signal
+from app.schemas.serializers import serialize_signal, serialize_signal_ai_analysis
+from app.services.ai_analysis_service import AIAnalysisService
 from app.services.signal_service import SignalService
 from app.utils.constants import PositionStatus
 
@@ -42,12 +43,68 @@ def generate_signals():
     return success([serialize_signal(signal) for signal in signals], status=201)
 
 
+@bp.get("/signals/history")
+def signal_history():
+    instrument_id = request.args.get("instrument_id", type=int)
+    account_id = request.args.get("account_id", type=int)
+    limit = request.args.get("limit", default=200, type=int)
+
+    if instrument_id:
+        signals = SignalService.get_instrument_history(
+            instrument_id=instrument_id,
+            account_id=account_id,
+            limit=limit,
+        )
+    else:
+        signals = SignalService.get_history(limit=limit)
+
+    return success([serialize_signal(signal) for signal in signals])
+
+
+@bp.post("/signals/ai-analysis/batch")
+def create_batch_ai_analysis():
+    data = request.get_json(silent=True) or {}
+    account_id = data.get("account_id", request.args.get("account_id", type=int))
+    try:
+        account_id = int(account_id) if account_id is not None else None
+    except (TypeError, ValueError):
+        return error("validation_error", "account_id must be an integer", 400)
+
+    signals = SignalService.get_latest_signals(account_id=account_id)
+    result = AIAnalysisService.create_batch_analysis(signals) if signals else {
+        "success": 0,
+        "error": 0,
+    }
+    return success(result)
+
+
 @bp.get("/signals/<int:signal_id>")
 def get_signal(signal_id: int):
     signal = db.session.get(Signal, signal_id)
     if signal is None:
         return error("not_found", "Signal not found", 404)
     return success(serialize_signal(signal))
+
+
+@bp.get("/signals/<int:signal_id>/ai-analysis")
+def get_signal_ai_analysis(signal_id: int):
+    signal = db.session.get(Signal, signal_id)
+    if signal is None:
+        return error("not_found", "Signal not found", 404)
+
+    analysis = AIAnalysisService.get_latest_analysis(signal.id)
+    return success(serialize_signal_ai_analysis(analysis))
+
+
+@bp.post("/signals/<int:signal_id>/ai-analysis")
+def create_signal_ai_analysis(signal_id: int):
+    signal = db.session.get(Signal, signal_id)
+    if signal is None:
+        return error("not_found", "Signal not found", 404)
+
+    analysis = AIAnalysisService.create_analysis(signal.id)
+    status = 201 if analysis.status == "success" else 200
+    return success(serialize_signal_ai_analysis(analysis), status=status)
 
 
 def _load_rebalance_context(signal: Signal):

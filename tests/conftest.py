@@ -29,6 +29,7 @@ def app(monkeypatch):
         yield app
         db.session.remove()
         db.drop_all()
+        db.engine.dispose()
 
     if db_path.exists():
         db_path.unlink()

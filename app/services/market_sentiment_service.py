@@ -27,6 +27,7 @@ class MarketSentimentService:
     HOT_RANK_URL = "https://emappdata.eastmoney.com/stockrank/getAllCurrentList"
     HOT_UP_URL = "https://emappdata.eastmoney.com/stockrank/getAllHisRcList"
     VIX_QUOTE_URL = "https://push2.eastmoney.com/api/qt/stock/get"
+    VIX_KLINE_URL = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
     SINA_INDEX_URL = "https://hq.sinajs.cn/list="
     HEADERS = {
         "User-Agent": (
@@ -213,6 +214,80 @@ class MarketSentimentService:
             if last_error is not None:
                 raise last_error
             raise
+
+    @classmethod
+    def get_vix_history(cls, days: int = 30, interval: str = "daily") -> dict:
+        """Fetch VIX historical points for dashboard trend charts."""
+        days = max(1, int(days or 30))
+        interval = interval if interval in {"daily", "intraday"} else "daily"
+        klt = "101" if interval == "daily" else "1"
+
+        try:
+            with cls._create_session() as session:
+                data = cls._get_json(
+                    session,
+                    cls.VIX_KLINE_URL,
+                    params={
+                        "secid": cls.VIX_SECID,
+                        "klt": klt,
+                        "fqt": "1",
+                        "lmt": days,
+                        "end": "20500101",
+                        "fields1": "f1,f2,f3,f4,f5,f6",
+                        "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
+                    },
+                )
+            klines = (data.get("data") or {}).get("klines") or []
+            series = []
+            for item in klines:
+                fields = str(item).split(",")
+                if len(fields) < 5:
+                    continue
+                close = cls._safe_float(fields[2])
+                if close is None:
+                    continue
+                series.append(
+                    {
+                        "date": fields[0],
+                        "open": cls._safe_float(fields[1]),
+                        "close": close,
+                        "value": close,
+                        "high": cls._safe_float(fields[3]),
+                        "low": cls._safe_float(fields[4]),
+                        "change_pct": cls._safe_float(fields[8]) if len(fields) > 8 else None,
+                    }
+                )
+            if series:
+                return {
+                    "series": series,
+                    "range": f"{days}d",
+                    "interval": interval,
+                    "source": "eastmoney",
+                }
+        except Exception as exc:
+            logger.warning("鑾峰彇 VIX 鍘嗗彶搴忓垪澶辫触: %s", exc)
+
+        snapshot = cls.get_dashboard_snapshot().get("vix") or {}
+        value = snapshot.get("value")
+        series = []
+        if value is not None:
+            series.append(
+                {
+                    "date": datetime.now().date().isoformat(),
+                    "open": snapshot.get("open"),
+                    "close": value,
+                    "value": value,
+                    "high": snapshot.get("high"),
+                    "low": snapshot.get("low"),
+                    "change_pct": snapshot.get("change_pct"),
+                }
+            )
+        return {
+            "series": series,
+            "range": f"{days}d",
+            "interval": interval,
+            "source": "snapshot_fallback",
+        }
 
     @classmethod
     def _extract_cboe_metric(cls, html: str, label: str) -> Optional[float]:

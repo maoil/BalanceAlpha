@@ -10,7 +10,7 @@ from flask import Flask
 from dotenv import load_dotenv
 from sqlalchemy import inspect, text
 
-from app.config import config_map
+from app.config import BASE_DIR, config_map
 
 
 def create_app(config_name: str = None) -> Flask:
@@ -26,8 +26,15 @@ def create_app(config_name: str = None) -> Flask:
     if config_name is None:
         config_name = os.getenv("FLASK_ENV", "development")
 
-    app = Flask(__name__)
+    app = Flask(__name__, static_folder=None)
     app.config.from_object(config_map.get(config_name, config_map["default"]))
+    database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        if database_url.startswith("sqlite:///"):
+            sqlite_path = database_url.removeprefix("sqlite:///")
+            if sqlite_path != ":memory:" and not Path(sqlite_path).is_absolute():
+                database_url = f"sqlite:///{(BASE_DIR / sqlite_path).as_posix()}"
+        app.config["SQLALCHEMY_DATABASE_URI"] = database_url
 
     # 确保数据目录存在
     data_dir = app.config.get("DATA_DIR")
@@ -40,9 +47,6 @@ def create_app(config_name: str = None) -> Flask:
 
     # 注册蓝图
     _register_blueprints(app)
-
-    # 注册模板上下文
-    _register_context_processors(app)
 
     # 配置日志
     _configure_logging(app)
@@ -76,53 +80,7 @@ def _init_extensions(app: Flask) -> None:
 def _register_blueprints(app: Flask) -> None:
     """注册所有蓝图"""
     from app.api import register_api
-    from app.views.dashboard import bp as dashboard_bp
-    from app.views.backtests import bp as backtests_bp
-    from app.views.instruments import bp as instruments_bp
-    from app.views.positions import bp as positions_bp
-    from app.views.trades import bp as trades_bp
-    from app.views.signals import bp as signals_bp
-    from app.views.settings import bp as settings_bp
-    from app.views.logs import bp as logs_bp
-
-    app.register_blueprint(dashboard_bp)
-    app.register_blueprint(backtests_bp, url_prefix="/backtests")
-    app.register_blueprint(instruments_bp, url_prefix="/instruments")
-    app.register_blueprint(positions_bp, url_prefix="/positions")
-    app.register_blueprint(trades_bp, url_prefix="/trades")
-    app.register_blueprint(signals_bp, url_prefix="/signals")
-    app.register_blueprint(settings_bp, url_prefix="/settings")
-    app.register_blueprint(logs_bp, url_prefix="/logs")
     register_api(app)
-
-
-def _register_context_processors(app: Flask) -> None:
-    """注册模板上下文处理器 - 让所有模板可用的变量"""
-    from app.utils.constants import (
-        SIGNAL_TYPE_LABELS, SIGNAL_TYPE_COLORS,
-        InstrumentType, AccountType, InstrumentStatus,
-        TradeType, TradeSide, SignalType, SignalStatus,
-        LogType, LogLevel,
-    )
-    from app.utils.helpers import format_pct, format_currency, format_number
-
-    @app.context_processor
-    def inject_utils():
-        return {
-            "SIGNAL_TYPE_LABELS": SIGNAL_TYPE_LABELS,
-            "SIGNAL_TYPE_COLORS": SIGNAL_TYPE_COLORS,
-            "InstrumentType": InstrumentType,
-            "AccountType": AccountType,
-            "InstrumentStatus": InstrumentStatus,
-            "TradeType": TradeType,
-            "TradeSide": TradeSide,
-            "SignalType": SignalType,
-            "SignalStatus": SignalStatus,
-            "LogType": LogType,
-            "format_pct": format_pct,
-            "format_currency": format_currency,
-            "format_number": format_number,
-        }
 
 
 def _configure_logging(app: Flask) -> None:

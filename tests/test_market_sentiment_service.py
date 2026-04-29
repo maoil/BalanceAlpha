@@ -1,4 +1,4 @@
-from app.services.account_service import AccountService
+﻿from app.services.account_service import AccountService
 from app.services.market_sentiment_service import MarketSentimentService
 from app.services.signal_service import SignalService
 from app.services.trade_service import TradeService
@@ -35,18 +35,25 @@ def test_build_market_heat_combines_indices_hot_rank_and_vix():
     assert heat["hot_up_ratio"] == 100.0
 
 
-def test_dashboard_renders_market_sentiment_section(app, client, monkeypatch):
+def test_dashboard_api_returns_market_sentiment_snapshot(client, factories, monkeypatch):
     MarketSentimentService._cache_snapshot = None
     MarketSentimentService._cache_expires_at = None
+    account = factories.create_account(
+        account_code="core-market-sentiment",
+        account_name="Market Sentiment",
+        account_type="core",
+    )
 
     monkeypatch.setattr(
         AccountService,
         "get_all_summaries",
         lambda: {
             "core": {
+                "account": account,
                 "summary": {
                     "total_market_value": 100000.0,
                     "total_unrealized_pnl": 8000.0,
+                    "total_unrealized_pnl_pct": 8000.0 / 92000.0,
                     "total_cost": 92000.0,
                     "position_count": 3,
                 }
@@ -100,11 +107,13 @@ def test_dashboard_renders_market_sentiment_section(app, client, monkeypatch):
         },
     )
 
-    response = client.get("/")
-    html = response.get_data(as_text=True)
+    response = client.get("/api/v1/dashboard")
+    payload = response.get_json()["data"]
+    market_sentiment = payload["market_sentiment"]
 
     assert response.status_code == 200
-    assert "市场热度观察" in html
-    assert "VIX 恐慌指数" in html
-    assert "A 股人气榜" in html
-    assert "测试热股" in html
+    assert payload["totals"]["market_value"] == 100000.0
+    assert market_sentiment["heat"]["score"] == 68
+    assert market_sentiment["vix"]["value"] == 17.48
+    assert market_sentiment["hot_rank"][0]["plain_code"] == "000001"
+    assert market_sentiment["hot_up"][0]["plain_code"] == "300001"
