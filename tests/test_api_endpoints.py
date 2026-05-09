@@ -36,6 +36,15 @@ def test_api_adds_cors_headers_for_configured_origin(client):
     assert "PATCH" in response.headers["Access-Control-Allow-Methods"]
 
 
+def test_api_allows_127_0_0_1_vite_origin_by_default(client):
+    response = client.get(
+        "/api/v1/health",
+        headers={"Origin": "http://127.0.0.1:5173"},
+    )
+
+    assert response.headers["Access-Control-Allow-Origin"] == "http://127.0.0.1:5173"
+
+
 def test_dashboard_api_returns_aggregate_snapshot(app, client, factories, monkeypatch):
     from app.services.market_sentiment_service import MarketSentimentService
 
@@ -154,6 +163,9 @@ def test_dashboard_asset_trend_api_returns_portfolio_history(client, factories):
         {
             "date": "2026-04-20",
             "total_assets": 400.0,
+            "total_cost": 400.0,
+            "unrealized_pnl": 0.0,
+            "daily_pnl": 0.0,
             "net_value": 1.0,
             "daily_return": 0.0,
             "cumulative_return": 0.0,
@@ -161,11 +173,16 @@ def test_dashboard_asset_trend_api_returns_portfolio_history(client, factories):
         {
             "date": "2026-04-21",
             "total_assets": 440.0,
+            "total_cost": 400.0,
+            "unrealized_pnl": 40.0,
+            "daily_pnl": 40.0,
             "net_value": 1.1,
             "daily_return": 0.1,
             "cumulative_return": 0.1,
         },
     ]
+    assert payload["summary"]["start_unrealized_pnl"] == 0.0
+    assert payload["summary"]["end_unrealized_pnl"] == 40.0
     assert payload["summary"]["total_return"] == 0.1
 
 
@@ -488,6 +505,214 @@ def test_manual_fund_buy_api_creates_pending_order_instead_of_trade(
     assert pending_count == 1
 
 
+def test_manual_fund_buy_api_does_not_use_late_realtime_nav_for_old_order(
+    client, factories, monkeypatch
+):
+    from app.services.fund_data_fetcher import FundDataFetcher
+    from app.services.trading_calendar_service import TradingCalendarService
+
+    account = factories.create_account(
+        account_code="core-old-fund",
+        account_name="Old Fund Order",
+        account_type="core",
+    )
+    instrument = factories.create_instrument(
+        symbol="007721-old",
+        name="天弘标普500(QDII-FOF)A",
+        instrument_type="fund",
+        trade_mode="eod_nav",
+    )
+    instrument.dca_confirm_cycle = 1
+    db.session.commit()
+
+    order_date = date(2026, 1, 5)
+    confirm_date = date(2026, 1, 7)
+
+    monkeypatch.setattr(
+        TradingCalendarService,
+        "add_trading_days",
+        staticmethod(lambda current_date, offset: current_date + timedelta(days=offset)),
+    )
+    monkeypatch.setattr(
+        FundDataFetcher,
+        "get_fund_nav_history_extended",
+        staticmethod(lambda *args, **kwargs: pd.DataFrame()),
+    )
+    monkeypatch.setattr(
+        FundDataFetcher,
+        "get_realtime_nav",
+        staticmethod(lambda symbol: {"nav": 2.2, "nav_date": date(2026, 4, 27)}),
+    )
+
+    response = client.post(
+        "/api/v1/trades",
+        json={
+            "account_id": account.id,
+            "instrument_id": instrument.id,
+            "trade_date": order_date.isoformat(),
+            "trade_type": "buy",
+            "amount": 50,
+            "fee": 0.05,
+        },
+    )
+
+    assert response.status_code == 201
+    payload = response.get_json()["data"]
+    assert payload["status"] == "pending"
+    assert payload["order_date"] == order_date.isoformat()
+    assert payload["expected_confirm_date"] == confirm_date.isoformat()
+    assert Trade.query.count() == 0
+
+
+def test_manual_fund_buy_api_auto_confirm_preserves_source_order(
+    client, factories, monkeypatch
+):
+    from app.services.fund_data_fetcher import FundDataFetcher
+    from app.services.trading_calendar_service import TradingCalendarService
+
+    account = factories.create_account(
+        account_code="core-historical-fund",
+        account_name="Historical Fund Order",
+        account_type="core",
+    )
+    instrument = factories.create_instrument(
+        symbol="007721-history",
+        name="天弘标普500(QDII-FOF)A",
+        instrument_type="fund",
+        trade_mode="eod_nav",
+    )
+    instrument.dca_confirm_cycle = 2
+    db.session.commit()
+
+    order_date = date(2026, 1, 5)
+    confirm_date = date(2026, 1, 7)
+
+    monkeypatch.setattr(
+        TradingCalendarService,
+        "add_trading_days",
+        staticmethod(lambda current_date, offset: current_date + timedelta(days=offset)),
+    )
+    monkeypatch.setattr(
+        FundDataFetcher,
+        "get_fund_nav_history_extended",
+        staticmethod(
+            lambda symbol, start_date=None, end_date=None: pd.DataFrame(
+                [
+                    {
+                        "trade_date": order_date,
+                        "nav": 2.0,
+                        "acc_nav": 2.0,
+                    },
+                    {
+                        "trade_date": confirm_date,
+                        "nav": 2.5,
+                        "acc_nav": 2.5,
+                    }
+                ]
+                if start_date == order_date.isoformat()
+                else []
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        FundDataFetcher,
+        "get_realtime_nav",
+        staticmethod(lambda symbol: None),
+    )
+
+    response = client.post(
+        "/api/v1/trades",
+        json={
+            "account_id": account.id,
+            "instrument_id": instrument.id,
+            "trade_date": order_date.isoformat(),
+            "trade_type": "buy",
+            "amount": 50,
+            "fee": 0.05,
+        },
+    )
+
+    assert response.status_code == 201
+    payload = response.get_json()["data"]
+    assert payload["trade_date"] == order_date.isoformat()
+    assert payload["price"] == 2.0
+    assert payload["source_order"]["order_date"] == order_date.isoformat()
+    assert payload["source_order"]["expected_confirm_date"] == confirm_date.isoformat()
+    assert payload["source_order"]["actual_confirm_date"] == confirm_date.isoformat()
+    assert payload["source_order"]["quote_date_used"] == order_date.isoformat()
+
+    order = ManualFundOrder.query.one()
+    assert order.status == "confirmed"
+    assert order.linked_trade_id == payload["id"]
+
+
+def test_trade_list_ignores_stale_manual_order_link_without_source_marker(
+    client, factories
+):
+    account = factories.create_account(
+        account_code="core-stale-trade",
+        account_name="Stale Trade",
+        account_type="core",
+    )
+    stale_account = factories.create_account(
+        account_code="core-stale-order",
+        account_name="Stale Order",
+        account_type="core",
+    )
+    instrument = factories.create_instrument(
+        symbol="007721-stale",
+        name="天弘标普500(QDII-FOF)A",
+        instrument_type="fund",
+        trade_mode="eod_nav",
+    )
+    stale_instrument = factories.create_instrument(
+        symbol="012922-stale",
+        name="旧关联基金",
+        instrument_type="fund",
+        trade_mode="eod_nav",
+    )
+
+    trade = Trade(
+        account_id=account.id,
+        instrument_id=instrument.id,
+        trade_date=date(2026, 1, 7),
+        trade_type="subscribe",
+        side="buy",
+        quantity=10,
+        price=2,
+        amount=20,
+        fee=0,
+    )
+    db.session.add(trade)
+    db.session.flush()
+    db.session.add(
+        ManualFundOrder(
+            account_id=stale_account.id,
+            instrument_id=stale_instrument.id,
+            order_date=date(2026, 4, 24),
+            expected_confirm_date=date(2026, 4, 27),
+            actual_confirm_date=date(2026, 4, 27),
+            trade_type="subscribe",
+            side="buy",
+            amount=100,
+            fee=0,
+            confirm_nav=1.99,
+            confirm_quantity=50,
+            quote_date_used=date(2026, 4, 27),
+            status="confirmed",
+            linked_trade_id=trade.id,
+        )
+    )
+    db.session.commit()
+
+    response = client.get(f"/api/v1/trades?instrument_id={instrument.id}")
+
+    assert response.status_code == 200
+    payload = response.get_json()["data"][0]
+    assert payload["id"] == trade.id
+    assert payload["source_order"] is None
+
+
 def test_exchange_traded_buy_api_still_creates_trade(client, factories):
     account = factories.create_account(
         account_code="core-etf-buy",
@@ -573,6 +798,7 @@ def test_manual_fund_order_confirm_api_creates_trade_and_position_when_ready(
 ):
     from app.models.position import Position
     from app.services.fund_data_fetcher import FundDataFetcher
+    from app.services.trading_calendar_service import TradingCalendarService
 
     account = factories.create_account(
         account_code="core-manual-confirm",
@@ -598,13 +824,19 @@ def test_manual_fund_order_confirm_api_creates_trade_and_position_when_ready(
         "get_realtime_nav",
         staticmethod(lambda symbol: None),
     )
+    monkeypatch.setattr(
+        TradingCalendarService,
+        "add_trading_days",
+        staticmethod(lambda current_date, offset: current_date + timedelta(days=offset)),
+    )
 
+    order_date = date.today() - timedelta(days=1)
     create_response = client.post(
         "/api/v1/trades",
         json={
             "account_id": account.id,
             "instrument_id": instrument.id,
-            "trade_date": (date.today() - timedelta(days=3)).isoformat(),
+            "trade_date": order_date.isoformat(),
             "trade_type": "buy",
             "amount": 1000,
             "fee": 0,
@@ -616,8 +848,20 @@ def test_manual_fund_order_confirm_api_creates_trade_and_position_when_ready(
 
     monkeypatch.setattr(
         FundDataFetcher,
-        "get_realtime_nav",
-        staticmethod(lambda symbol: {"nav": 1.25, "nav_date": date.today()}),
+        "get_fund_nav_history_extended",
+        staticmethod(
+            lambda symbol, start_date=None, end_date=None: pd.DataFrame(
+                    [
+                        {
+                            "trade_date": pd.Timestamp(order_date),
+                            "nav": 1.25,
+                            "acc_nav": 1.25,
+                        }
+                ]
+                if start_date == order_date.isoformat()
+                else []
+            )
+        ),
     )
 
     response = client.post(f"/api/v1/manual-fund-orders/{order_id}/confirm")
@@ -627,10 +871,14 @@ def test_manual_fund_order_confirm_api_creates_trade_and_position_when_ready(
     assert payload["order"]["status"] == "confirmed"
     assert payload["trade"]["trade_type"] == "subscribe"
     assert payload["trade"]["quantity"] == 800
+    assert payload["trade"]["source_order"]["order_date"] == order_date.isoformat()
+    assert payload["trade"]["source_order"]["actual_confirm_date"] == date.today().isoformat()
+    assert payload["trade"]["source_order"]["quote_date_used"] == order_date.isoformat()
+    assert payload["trade"]["source_order"]["confirm_nav"] == 1.25
 
     trade = Trade.query.one()
     assert trade.price == 1.25
-    assert trade.trade_date == date.today()
+    assert trade.trade_date == order_date
     assert trade.reason_code == "manual_confirm"
     assert trade.notes == "confirm later"
 
@@ -655,6 +903,7 @@ def test_refresh_positions_auto_confirms_ready_manual_fund_orders(
     client, factories, monkeypatch
 ):
     from app.services.fund_data_fetcher import FundDataFetcher
+    from app.services.trading_calendar_service import TradingCalendarService
 
     account = factories.create_account(
         account_code="core-manual-refresh",
@@ -680,13 +929,19 @@ def test_refresh_positions_auto_confirms_ready_manual_fund_orders(
         "get_realtime_nav",
         staticmethod(lambda symbol: None),
     )
+    monkeypatch.setattr(
+        TradingCalendarService,
+        "add_trading_days",
+        staticmethod(lambda current_date, offset: current_date + timedelta(days=offset)),
+    )
 
+    order_date = date.today() - timedelta(days=1)
     client.post(
         "/api/v1/trades",
         json={
             "account_id": account.id,
             "instrument_id": instrument.id,
-            "trade_date": (date.today() - timedelta(days=3)).isoformat(),
+            "trade_date": order_date.isoformat(),
             "trade_type": "buy",
             "amount": 600,
         },
@@ -699,8 +954,20 @@ def test_refresh_positions_auto_confirms_ready_manual_fund_orders(
     )
     monkeypatch.setattr(
         FundDataFetcher,
-        "get_realtime_nav",
-        staticmethod(lambda symbol: {"nav": 1.2, "nav_date": date.today()}),
+        "get_fund_nav_history_extended",
+        staticmethod(
+            lambda symbol, start_date=None, end_date=None: pd.DataFrame(
+                [
+                    {
+                        "trade_date": order_date,
+                        "nav": 1.2,
+                        "acc_nav": 1.2,
+                    }
+                ]
+                if start_date == order_date.isoformat()
+                else []
+            )
+        ),
     )
 
     response = client.post("/api/v1/positions/refresh")
@@ -783,14 +1050,16 @@ def test_refresh_positions_auto_confirms_ready_manual_fund_sell_orders(
         FundDataFetcher,
         "get_fund_nav_history_extended",
         staticmethod(
-            lambda *args, **kwargs: pd.DataFrame(
+            lambda symbol, start_date=None, end_date=None: pd.DataFrame(
                 [
                     {
-                        "trade_date": confirm_date,
+                        "trade_date": sell_date,
                         "nav": 1.2,
                         "acc_nav": 1.2,
                     }
                 ]
+                if start_date == sell_date.isoformat()
+                else []
             )
         ),
     )

@@ -13,7 +13,10 @@ class Config:
     SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production")
     API_CORS_ORIGINS = [
         origin.strip()
-        for origin in os.getenv("API_CORS_ORIGINS", "http://localhost:5173").split(",")
+        for origin in os.getenv(
+            "API_CORS_ORIGINS",
+            "http://localhost:5173,http://127.0.0.1:5173",
+        ).split(",")
         if origin.strip()
     ]
 

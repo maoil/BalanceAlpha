@@ -627,6 +627,83 @@ class FundDataFetcher:
         return normalized
 
     @staticmethod
+    def _get_fund_nav_history_em(
+        fund_code: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> pd.DataFrame:
+        """Fetch fund NAV history from Eastmoney's historical NAV endpoint."""
+        try:
+            url = "https://api.fund.eastmoney.com/f10/lsjz"
+            headers = {
+                **HEADERS,
+                "Referer": f"https://fundf10.eastmoney.com/jjjz_{fund_code}.html",
+            }
+            records: list[dict] = []
+            page_index = 1
+            page_size = 20
+            start_bound = pd.to_datetime(start_date).date() if start_date else None
+
+            while page_index <= 100:
+                params = {
+                    "fundCode": fund_code,
+                    "pageIndex": page_index,
+                    "pageSize": page_size,
+                    "sdate": start_date or "",
+                    "edate": end_date or "",
+                    "callback": "",
+                }
+                resp = requests.get(url, params=params, headers=headers, timeout=10)
+                resp.raise_for_status()
+
+                raw = resp.text.strip()
+                if raw.startswith("jQuery") or raw.startswith("jsonp"):
+                    raw = raw[raw.index("(") + 1: raw.rindex(")")]
+
+                payload = json.loads(raw)
+                page_records = (payload.get("Data") or {}).get("LSJZList") or []
+                if not page_records:
+                    break
+
+                records.extend(page_records)
+                last_date = pd.to_datetime(page_records[-1].get("FSRQ")).date()
+                if start_bound and last_date < start_bound:
+                    break
+                if len(page_records) < page_size:
+                    break
+                page_index += 1
+
+            if not records:
+                return pd.DataFrame()
+
+            df = pd.DataFrame(records).rename(
+                columns={
+                    "FSRQ": "trade_date",
+                    "DWJZ": "nav",
+                    "LJJZ": "acc_nav",
+                    "JZZZL": "change_pct",
+                }
+            )
+            df = FundDataFetcher._normalize_history_frame(
+                df,
+                numeric_columns=["nav", "acc_nav", "change_pct"],
+            )
+
+            if start_date:
+                df = df[df["trade_date"] >= pd.to_datetime(start_date)]
+            if end_date:
+                df = df[df["trade_date"] <= pd.to_datetime(end_date)]
+
+            keep_columns = [
+                column for column in ("trade_date", "nav", "acc_nav", "change_pct")
+                if column in df.columns
+            ]
+            return df[keep_columns].sort_values("trade_date").reset_index(drop=True)
+        except Exception as e:
+            logger.error("东方财富历史净值获取失败 %s: %s", fund_code, e)
+            return pd.DataFrame()
+
+    @staticmethod
     def get_fund_nav_history_extended(
         fund_code: str,
         start_date: Optional[str] = None,
@@ -638,7 +715,11 @@ class FundDataFetcher:
 
             df = ak.fund_open_fund_info_em(symbol=fund_code, indicator="单位净值走势")
             if df is None or df.empty:
-                return pd.DataFrame()
+                return FundDataFetcher._get_fund_nav_history_em(
+                    fund_code,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
 
             df = df.rename(columns={
                 "净值日期": "trade_date",
@@ -662,8 +743,12 @@ class FundDataFetcher:
             ]
             return df[keep_columns].sort_values("trade_date").reset_index(drop=True)
         except Exception as e:
-            logger.error("获取基金历史净值失败 %s: %s", fund_code, e)
-            return pd.DataFrame()
+            logger.warning("akshare 历史净值不可用，改用东方财富接口 %s: %s", fund_code, e)
+            return FundDataFetcher._get_fund_nav_history_em(
+                fund_code,
+                start_date=start_date,
+                end_date=end_date,
+            )
 
     @staticmethod
     def get_exchange_traded_history_extended(

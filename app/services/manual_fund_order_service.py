@@ -27,6 +27,14 @@ class ManualFundOrderService:
     @staticmethod
     def _get_confirm_cycle(instrument) -> int:
         cycle = int(instrument.dca_confirm_cycle or 1)
+        instrument_text = " ".join(
+            [
+                str(getattr(instrument, "name", "") or ""),
+                str(getattr(instrument, "market", "") or ""),
+            ]
+        ).upper()
+        if "QDII" in instrument_text:
+            cycle = max(cycle, 2)
         if cycle not in {1, 2}:
             raise ValueError("dca_confirm_cycle must be 1 or 2")
         return cycle
@@ -54,10 +62,10 @@ class ManualFundOrderService:
 
     @staticmethod
     def _normalize_quote_date(raw_value: object) -> Optional[date]:
-        if isinstance(raw_value, date):
-            return raw_value
         if hasattr(raw_value, "date"):
             return raw_value.date()
+        if isinstance(raw_value, date):
+            return raw_value
         if isinstance(raw_value, str) and raw_value:
             try:
                 return datetime.strptime(raw_value[:10], "%Y-%m-%d").date()
@@ -137,30 +145,30 @@ class ManualFundOrderService:
         return {"nav": nav, "nav_date": quote_date}
 
     @staticmethod
-    def _fetch_confirm_quote(instrument, expected_confirm_date: date) -> Optional[dict]:
+    def _fetch_trade_date_quote(instrument, trade_date: date) -> Optional[dict]:
         from app.services.fund_data_fetcher import FundDataFetcher
-        if expected_confirm_date > date.today():
+        if trade_date > date.today():
             return None
         cached_quote = ManualFundOrderService._get_market_data_quote(
             instrument.id,
-            expected_confirm_date,
+            trade_date,
         )
         if cached_quote:
             return cached_quote
 
         history = FundDataFetcher.get_fund_nav_history_extended(
             instrument.symbol,
-            start_date=expected_confirm_date.isoformat(),
-            end_date=expected_confirm_date.isoformat(),
+            start_date=trade_date.isoformat(),
+            end_date=trade_date.isoformat(),
         )
         if history is not None and not history.empty:
-            row = history.iloc[-1]
-            nav = ManualFundOrderService._coerce_float(row.get("nav"))
-            nav_date = ManualFundOrderService._normalize_quote_date(
-                row.get("trade_date")
-            )
-            if nav > 0 and nav_date == expected_confirm_date:
-                return {"nav": nav, "nav_date": nav_date}
+            for _, row in history.iloc[::-1].iterrows():
+                nav = ManualFundOrderService._coerce_float(row.get("nav"))
+                nav_date = ManualFundOrderService._normalize_quote_date(
+                    row.get("trade_date")
+                )
+                if nav > 0 and nav_date == trade_date:
+                    return {"nav": nav, "nav_date": nav_date}
 
         quote = FundDataFetcher.get_realtime_nav(instrument.symbol)
         if not quote:
@@ -168,7 +176,7 @@ class ManualFundOrderService:
 
         nav = ManualFundOrderService._coerce_float(quote.get("nav"))
         nav_date = ManualFundOrderService._normalize_quote_date(quote.get("nav_date"))
-        if nav <= 0 or nav_date is None or nav_date < expected_confirm_date:
+        if nav <= 0 or nav_date != trade_date:
             return None
 
         return {"nav": nav, "nav_date": nav_date}
@@ -290,16 +298,37 @@ class ManualFundOrderService:
             instrument,
         )
 
-        quote = ManualFundOrderService._fetch_confirm_quote(
-            instrument,
-            expected_confirm_date,
-        )
+        if expected_confirm_date > date.today():
+            return ManualFundOrderService.create_pending_order(data, instrument, side)
+
+        quote = ManualFundOrderService._fetch_trade_date_quote(instrument, order_date)
 
         if not quote:
             return ManualFundOrderService.create_pending_order(data, instrument, side)
 
         nav = ManualFundOrderService._coerce_float(quote["nav"])
         nav_date = quote["nav_date"]
+        trade_type = ManualFundOrderService._normalize_trade_type(
+            data.get("trade_type", ""),
+            side,
+        )
+        order = ManualFundOrder(
+            account_id=int(data["account_id"]),
+            instrument_id=int(data["instrument_id"]),
+            order_date=order_date,
+            expected_confirm_date=expected_confirm_date,
+            actual_confirm_date=expected_confirm_date,
+            trade_type=trade_type,
+            side=side,
+            quantity=quantity if quantity > 0 else None,
+            amount=amount,
+            fee=fee,
+            confirm_nav=nav,
+            quote_date_used=nav_date,
+            status="confirmed",
+            reason_code=data.get("reason_code", ""),
+            notes=data.get("notes", ""),
+        )
         quantity, amount = ManualFundOrderService._resolve_trade_values(
             side,
             quantity,
@@ -307,15 +336,16 @@ class ManualFundOrderService:
             fee,
             nav,
         )
+        order.confirm_quantity = quantity
 
         try:
+            db.session.add(order)
+            db.session.flush()
+
             trade = ManualFundOrderService._create_trade_record(
                 account_id=int(data["account_id"]),
                 instrument_id=int(data["instrument_id"]),
-                trade_type=ManualFundOrderService._normalize_trade_type(
-                    data.get("trade_type", ""),
-                    side,
-                ),
+                trade_type=trade_type,
                 side=side,
                 quantity=quantity,
                 amount=amount,
@@ -324,7 +354,11 @@ class ManualFundOrderService:
                 nav_date=nav_date,
                 reason_code=data.get("reason_code", ""),
                 notes=data.get("notes", ""),
+                source_type="manual_fund_order",
+                source_id=order.id,
             )
+            order.linked_trade = trade
+            order.linked_trade_id = trade.id
             PositionService.recalculate_weights()
             db.session.commit()
         except Exception:
@@ -361,9 +395,9 @@ class ManualFundOrderService:
         if run_date < order.expected_confirm_date:
             raise ValueError("Manual fund order is not ready for confirmation")
 
-        quote = ManualFundOrderService._fetch_confirm_quote(
+        quote = ManualFundOrderService._fetch_trade_date_quote(
             order.instrument,
-            order.expected_confirm_date,
+            order.order_date,
         )
         if not quote:
             raise ValueError("NAV is not ready")
@@ -398,7 +432,7 @@ class ManualFundOrderService:
             )
 
             order.status = "confirmed"
-            order.actual_confirm_date = nav_date
+            order.actual_confirm_date = order.expected_confirm_date
             order.confirm_nav = nav
             order.confirm_quantity = quantity
             order.quote_date_used = nav_date

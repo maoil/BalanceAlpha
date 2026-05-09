@@ -71,6 +71,11 @@ class DashboardMetricsService:
         quantities = {
             position.instrument_id: float(position.quantity or 0) for position in positions
         }
+        costs = {
+            position.instrument_id: float(position.quantity or 0)
+            * float(position.avg_cost or 0)
+            for position in positions
+        }
         latest_prices: dict[int, float] = {}
         rows_by_date: dict[date, list[MarketData]] = {}
         for row in rows:
@@ -79,23 +84,35 @@ class DashboardMetricsService:
         series = []
         start_assets = None
         previous_assets = None
+        previous_unrealized_pnl = None
         for trade_date, day_rows in rows_by_date.items():
             for row in day_rows:
                 price = _price(row)
                 if price is not None:
                     latest_prices[row.instrument_id] = price
 
-            total_assets = sum(
-                quantities[instrument_id] * latest_prices[instrument_id]
+            priced_instrument_ids = [
+                instrument_id
                 for instrument_id in quantities
                 if instrument_id in latest_prices
+            ]
+            total_assets = sum(
+                quantities[instrument_id] * latest_prices[instrument_id]
+                for instrument_id in priced_instrument_ids
             )
+            total_cost = sum(costs[instrument_id] for instrument_id in priced_instrument_ids)
             if total_assets <= 0:
                 continue
 
             if start_assets is None:
                 start_assets = total_assets
 
+            unrealized_pnl = total_assets - total_cost
+            daily_pnl = (
+                unrealized_pnl - previous_unrealized_pnl
+                if previous_unrealized_pnl is not None
+                else 0.0
+            )
             daily_return = (
                 total_assets / previous_assets - 1 if previous_assets else 0.0
             )
@@ -106,20 +123,28 @@ class DashboardMetricsService:
                 {
                     "date": trade_date.isoformat(),
                     "total_assets": _round_money(total_assets),
+                    "total_cost": _round_money(total_cost),
+                    "unrealized_pnl": _round_money(unrealized_pnl),
+                    "daily_pnl": _round_money(daily_pnl),
                     "net_value": _round_ratio(total_assets / start_assets),
                     "daily_return": _round_ratio(daily_return),
                     "cumulative_return": _round_ratio(cumulative_return),
                 }
             )
             previous_assets = total_assets
+            previous_unrealized_pnl = unrealized_pnl
 
         start_value = series[0]["total_assets"] if series else 0.0
         end_value = series[-1]["total_assets"] if series else 0.0
+        start_unrealized_pnl = series[0]["unrealized_pnl"] if series else 0.0
+        end_unrealized_pnl = series[-1]["unrealized_pnl"] if series else 0.0
         return {
             "series": series,
             "summary": {
                 "start_assets": start_value,
                 "end_assets": end_value,
+                "start_unrealized_pnl": start_unrealized_pnl,
+                "end_unrealized_pnl": end_unrealized_pnl,
                 "total_return": _round_ratio(end_value / start_value - 1)
                 if start_value > 0
                 else 0.0,

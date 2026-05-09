@@ -90,6 +90,33 @@ def serialize_position(position) -> dict:
     }
 
 
+def serialize_trade_source_order(order) -> dict | None:
+    if order is None:
+        return None
+
+    return {
+        "id": order.id,
+        "order_date": _iso(order.order_date),
+        "expected_confirm_date": _iso(order.expected_confirm_date),
+        "actual_confirm_date": _iso(order.actual_confirm_date),
+        "confirm_nav": _number(order.confirm_nav),
+        "confirm_quantity": _number(order.confirm_quantity),
+        "quote_date_used": _iso(order.quote_date_used),
+        "status": order.status,
+        "linked_trade_id": order.linked_trade_id,
+    }
+
+
+def _get_trade_source_order(trade):
+    if trade.source_type != "manual_fund_order" or not trade.source_id:
+        return None
+
+    order = getattr(trade, "manual_fund_order", None)
+    if order is None or order.id != trade.source_id:
+        return None
+    return order
+
+
 def serialize_trade(trade) -> dict:
     return {
         "id": trade.id,
@@ -108,6 +135,7 @@ def serialize_trade(trade) -> dict:
         "notes": trade.notes,
         "source_type": trade.source_type,
         "source_id": trade.source_id,
+        "source_order": serialize_trade_source_order(_get_trade_source_order(trade)),
         "created_at": _iso(getattr(trade, "created_at", None)),
     }
 

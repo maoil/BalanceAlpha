@@ -1,3 +1,6 @@
+import builtins
+import json
+
 import pytest
 import pandas as pd
 
@@ -78,3 +81,52 @@ def test_get_fund_info_aggregates_quote_and_indicators(monkeypatch):
     assert info["quote"]["source"] == "sina_etf"
     assert info["indicators"]["ma20"] == pytest.approx(1.1111)
     assert info["indicators"]["return_1m"] == pytest.approx(0.0567)
+
+
+def test_get_fund_nav_history_extended_falls_back_to_eastmoney(monkeypatch):
+    original_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "akshare":
+            raise ImportError("akshare unavailable")
+        return original_import(name, *args, **kwargs)
+
+    class FakeResponse:
+        text = json.dumps(
+            {
+                "Data": {
+                    "LSJZList": [
+                        {
+                            "FSRQ": "2026-01-07",
+                            "DWJZ": "2.0000",
+                            "LJJZ": "2.1000",
+                            "JZZZL": "0.50",
+                        }
+                    ]
+                }
+            }
+        )
+
+        def raise_for_status(self):
+            return None
+
+    captured = {}
+
+    def fake_get(url, params=None, **kwargs):
+        captured["params"] = params
+        return FakeResponse()
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    monkeypatch.setattr("app.services.fund_data_fetcher.requests.get", fake_get)
+
+    history = FundDataFetcher.get_fund_nav_history_extended(
+        "007721",
+        start_date="2026-01-07",
+        end_date="2026-01-07",
+    )
+
+    assert captured["params"]["sdate"] == "2026-01-07"
+    assert captured["params"]["edate"] == "2026-01-07"
+    assert history.iloc[0]["trade_date"].date().isoformat() == "2026-01-07"
+    assert history.iloc[0]["nav"] == pytest.approx(2.0)
+    assert history.iloc[0]["acc_nav"] == pytest.approx(2.1)
