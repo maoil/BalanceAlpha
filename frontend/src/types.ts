@@ -30,6 +30,14 @@ export type Instrument = {
   dca_confirm_cycle?: number | null;
   status: string;
   notes?: string | null;
+  backtest_config_key?: string | null;
+  tracking_index?: string | null;
+};
+
+export type BacktestConfig = {
+  key: string;
+  name: string;
+  strategy: string;
 };
 
 export type Position = {

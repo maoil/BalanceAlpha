@@ -110,6 +110,40 @@ describe("create form buttons", () => {
     });
   });
 
+  it("submits zero as the T+0 confirm cycle from the instrument form", async () => {
+    const user = userEvent.setup();
+    render(<InstrumentsPage />);
+
+    await user.click(screen.getByRole("button", { name: "新增产品" }));
+    const dialog = screen.getByRole("dialog", { name: "新增产品" });
+    const cycleSelect = dialog.querySelector(
+      'select[name="dca_confirm_cycle"]'
+    ) as HTMLSelectElement;
+
+    expect(cycleSelect).toBeInTheDocument();
+    expect(within(cycleSelect).getByRole("option", { name: "T+0" }))
+      .toBeInTheDocument();
+
+    await user.type(
+      dialog.querySelector('input[name="symbol"]') as HTMLInputElement,
+      "510050"
+    );
+    await user.type(
+      dialog.querySelector('input[name="name"]') as HTMLInputElement,
+      "T0 Product"
+    );
+    await user.selectOptions(cycleSelect, "0");
+    await user.click(within(dialog).getByRole("button", { name: "创建" }));
+
+    expect(api.createInstrument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        symbol: "510050",
+        name: "T0 Product",
+        dca_confirm_cycle: 0,
+      })
+    );
+  });
+
   it("maps instrument list codes to Chinese labels and colored type badges", async () => {
     vi.mocked(api.instruments).mockResolvedValue([
       {
@@ -246,6 +280,67 @@ describe("create form buttons", () => {
       expect.objectContaining({
         account_id: 2,
         instrument_id: 22,
+      })
+    );
+  });
+
+  it("requires quantity price amount and fee for T+0 trades", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.instruments).mockResolvedValue([
+      {
+        id: 25,
+        symbol: "161725",
+        name: "T0 Product",
+        instrument_type: "fund",
+        trade_mode: "eod_nav",
+        default_account_type: "core",
+        is_dca_eligible: false,
+        dca_confirm_cycle: 0,
+        status: "active",
+      },
+    ]);
+
+    render(<TradesPage />);
+
+    await user.click(screen.getByRole("button", { name: "新增交易" }));
+    const dialog = screen.getByRole("dialog", { name: "新增交易" });
+    await within(dialog).findByRole("option", { name: "161725 T0 Product" });
+    await user.selectOptions(
+      dialog.querySelector('select[name="instrument_id"]') as HTMLSelectElement,
+      "25"
+    );
+
+    const quantity = dialog.querySelector('input[name="quantity"]');
+    const price = dialog.querySelector('input[name="price"]');
+    const amount = dialog.querySelector('input[name="amount"]');
+    const fee = dialog.querySelector('input[name="fee"]');
+
+    expect(quantity).toBeInTheDocument();
+    expect(price).toBeInTheDocument();
+    expect(amount).toBeInTheDocument();
+    expect(fee).toBeInTheDocument();
+    expect(quantity).toBeRequired();
+    expect(price).toBeRequired();
+    expect(amount).toBeRequired();
+    expect(fee).toBeRequired();
+
+    await user.type(
+      dialog.querySelector('input[name="trade_date"]') as HTMLInputElement,
+      "2026-05-08"
+    );
+    await user.type(quantity as HTMLInputElement, "100");
+    await user.type(price as HTMLInputElement, "2");
+    await user.type(amount as HTMLInputElement, "200");
+    await user.type(fee as HTMLInputElement, "0");
+    await user.click(within(dialog).getByRole("button", { name: "提交" }));
+
+    expect(api.createTrade).toHaveBeenCalledWith(
+      expect.objectContaining({
+        instrument_id: 25,
+        quantity: 100,
+        price: 2,
+        amount: 200,
+        fee: 0,
       })
     );
   });

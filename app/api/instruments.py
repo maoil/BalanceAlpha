@@ -2,9 +2,22 @@ from flask import request
 
 from app.api import bp
 from app.api.responses import error, success
+from app.backtesting.registry import list_configs
 from app.schemas.serializers import serialize_instrument
 from app.services.fund_data_fetcher import DEFAULT_HISTORY_DAYS, FundDataFetcher
 from app.services.instrument_service import InstrumentService
+
+
+@bp.get("/backtest-configs")
+def get_backtest_configs():
+    """Get all available backtest configurations for binding to instruments."""
+    configs = list_configs()
+    return success(
+        [
+            {"key": key, "name": config["name"], "strategy": config["strategy_class"]}
+            for key, config in configs.items()
+        ]
+    )
 
 
 @bp.get("/instruments/search-fund")

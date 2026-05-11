@@ -44,6 +44,16 @@ class Instrument(TimestampMixin, db.Model):
         comment="状态: watchlist/active/paused/closed/archived",
     )
     notes = db.Column(db.Text, default="", comment="备注")
+    backtest_config_key = db.Column(
+        db.String(100),
+        default="",
+        comment="回测配置键，对应 Python 注册表中的配置",
+    )
+    tracking_index = db.Column(
+        db.String(50),
+        default="",
+        comment="追踪指数代码，如 000977.SH（CS人工智能指数），用于被动基金的实时信号生成",
+    )
 
     positions = db.relationship("Position", backref="instrument", lazy="dynamic")
     trades = db.relationship("Trade", backref="instrument", lazy="dynamic")

@@ -24,6 +24,15 @@ class InstrumentService:
     """Instrument business logic."""
 
     @staticmethod
+    def _normalize_confirm_cycle(value: object) -> int:
+        if value in (None, ""):
+            return 1
+        cycle = int(value)
+        if cycle not in {0, 1, 2}:
+            raise ValueError("dca_confirm_cycle must be 0, 1, or 2")
+        return cycle
+
+    @staticmethod
     def get_all(status: Optional[str] = None, account_type: Optional[str] = None) -> list[Instrument]:
         query = Instrument.query
         if status:
@@ -51,9 +60,13 @@ class InstrumentService:
             default_account_type=data.get("default_account_type", "core"),
             default_strategy_template=data.get("default_strategy_template", ""),
             is_dca_eligible=data.get("is_dca_eligible", False),
-            dca_confirm_cycle=int(data.get("dca_confirm_cycle", 1) or 1),
+            dca_confirm_cycle=InstrumentService._normalize_confirm_cycle(
+                data.get("dca_confirm_cycle", 1)
+            ),
             status=data.get("status", InstrumentStatus.ACTIVE.value),
             notes=data.get("notes", ""),
+            backtest_config_key=data.get("backtest_config_key", ""),
+            tracking_index=data.get("tracking_index", ""),
         )
         db.session.add(instrument)
         db.session.commit()
@@ -81,12 +94,18 @@ class InstrumentService:
             "dca_confirm_cycle",
             "status",
             "notes",
+            "backtest_config_key",
+            "tracking_index",
         ]:
             if field in data:
-                setattr(instrument, field, data[field])
-
-        if instrument.dca_confirm_cycle:
-            instrument.dca_confirm_cycle = int(instrument.dca_confirm_cycle)
+                if field == "dca_confirm_cycle":
+                    setattr(
+                        instrument,
+                        field,
+                        InstrumentService._normalize_confirm_cycle(data[field]),
+                    )
+                else:
+                    setattr(instrument, field, data[field])
 
         if (
             "default_account_type" in data

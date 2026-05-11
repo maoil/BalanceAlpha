@@ -12,7 +12,21 @@ from app.models.strategy_assignment import StrategyAssignment
 from app.schemas.serializers import serialize_signal, serialize_signal_ai_analysis
 from app.services.ai_analysis_service import AIAnalysisService
 from app.services.signal_service import SignalService
+from app.services.strategy_signal_service import StrategySignalService
 from app.utils.constants import PositionStatus
+
+
+@bp.get("/strategy-signals")
+def get_strategy_signals():
+    """获取基于 Python 策略代码的交易信号"""
+    instrument_id = request.args.get("instrument_id", type=int)
+    
+    if instrument_id:
+        result = StrategySignalService.generate_signal_for_instrument(instrument_id)
+        return success([result])
+    else:
+        results = StrategySignalService.generate_all_signals()
+        return success(results)
 
 
 @bp.get("/signals")

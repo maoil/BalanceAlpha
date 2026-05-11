@@ -16,6 +16,8 @@ from app.utils.constants import TRADE_TYPE_SIDE_MAP, TradeSide, TradeType
 class TradeService:
     """Trade business logic."""
 
+    REALTIME_REQUIRED_FIELDS = ("quantity", "price", "amount", "fee")
+
     @staticmethod
     def _coerce_float(value: object, default: float = 0.0) -> float:
         if value is None:
@@ -25,6 +27,33 @@ class TradeService:
             if not value:
                 return default
         return float(value)
+
+    @staticmethod
+    def _is_realtime_trade(instrument: Instrument) -> bool:
+        confirm_cycle = getattr(instrument, "dca_confirm_cycle", None)
+        return confirm_cycle is not None and int(confirm_cycle) == 0
+
+    @staticmethod
+    def _extract_realtime_trade_inputs(data: dict) -> tuple[float, float, float, float]:
+        for field in TradeService.REALTIME_REQUIRED_FIELDS:
+            if field not in data or data[field] is None or data[field] == "":
+                raise ValueError(f"{field} is required for T+0 trades")
+
+        quantity = TradeService._coerce_float(data.get("quantity"))
+        price = TradeService._coerce_float(data.get("price"))
+        amount = TradeService._coerce_float(data.get("amount"))
+        fee = TradeService._coerce_float(data.get("fee"))
+
+        if quantity <= 0:
+            raise ValueError("quantity must be positive for T+0 trades")
+        if price <= 0:
+            raise ValueError("price must be positive for T+0 trades")
+        if amount <= 0:
+            raise ValueError("amount must be positive for T+0 trades")
+        if fee < 0:
+            raise ValueError("fee must be non-negative for T+0 trades")
+
+        return quantity, price, amount, fee
 
     @staticmethod
     def get_all(
@@ -62,10 +91,15 @@ class TradeService:
         if instrument is None:
             raise ValueError("Instrument not found")
 
-        quantity = TradeService._coerce_float(data.get("quantity"))
-        price = TradeService._coerce_float(data.get("price"))
-        amount = TradeService._coerce_float(data.get("amount"))
-        fee = TradeService._coerce_float(data.get("fee"))
+        if TradeService._is_realtime_trade(instrument):
+            quantity, price, amount, fee = TradeService._extract_realtime_trade_inputs(
+                data
+            )
+        else:
+            quantity = TradeService._coerce_float(data.get("quantity"))
+            price = TradeService._coerce_float(data.get("price"))
+            amount = TradeService._coerce_float(data.get("amount"))
+            fee = TradeService._coerce_float(data.get("fee"))
 
         if price <= 0 and ManualFundOrderService.should_create_pending_order(
             instrument,

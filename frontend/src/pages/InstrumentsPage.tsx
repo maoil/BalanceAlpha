@@ -15,6 +15,7 @@ export function InstrumentsPage() {
     () => api.instruments({ status, account_type: accountType }),
     [status, accountType]
   );
+  const backtestConfigs = useAsyncData(() => api.backtestConfigs(), []);
   const mutation = useMutationStatus();
 
   async function createInstrument(event: FormEvent<HTMLFormElement>) {
@@ -159,9 +160,25 @@ export function InstrumentsPage() {
               <label>
                 确认周期
                 <select name="dca_confirm_cycle" defaultValue="1">
+                  <option value="0">T+0</option>
                   <option value="1">T+1</option>
                   <option value="2">T+2</option>
                 </select>
+              </label>
+              <label>
+                绑定策略
+                <select name="backtest_config_key" defaultValue="">
+                  <option value="">不绑定</option>
+                  {backtestConfigs.data?.map((config) => (
+                    <option key={config.key} value={config.key}>
+                      {config.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                追踪指数
+                <input name="tracking_index" placeholder="如 000977.SH" />
               </label>
             </div>
             <button className="primary-button" disabled={mutation.busy} type="submit">
@@ -239,8 +256,9 @@ export function InstrumentsPage() {
                 确认周期
                 <select
                   name="dca_confirm_cycle"
-                  defaultValue={String(editingInstrument.dca_confirm_cycle || 1)}
+                  defaultValue={String(editingInstrument.dca_confirm_cycle ?? 1)}
                 >
+                  <option value="0">T+0</option>
                   <option value="1">T+1</option>
                   <option value="2">T+2</option>
                 </select>
@@ -256,6 +274,28 @@ export function InstrumentsPage() {
               <label>
                 修改备注
                 <input name="notes" defaultValue={editingInstrument.notes || ""} />
+              </label>
+              <label>
+                绑定策略
+                <select
+                  name="backtest_config_key"
+                  defaultValue={editingInstrument.backtest_config_key || ""}
+                >
+                  <option value="">不绑定</option>
+                  {backtestConfigs.data?.map((config) => (
+                    <option key={config.key} value={config.key}>
+                      {config.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                追踪指数
+                <input
+                  name="tracking_index"
+                  defaultValue={editingInstrument.tracking_index || ""}
+                  placeholder="如 000977.SH"
+                />
               </label>
             </div>
             <button className="primary-button" disabled={mutation.busy} type="submit">
@@ -297,7 +337,7 @@ export function InstrumentsPage() {
                   </td>
                   <td>{accountTypeLabel(instrument.default_account_type)}</td>
                   <td>{tradeModeLabel(instrument.trade_mode)}</td>
-                  <td>T+{instrument.dca_confirm_cycle || 1}</td>
+                  <td>T+{instrument.dca_confirm_cycle ?? 1}</td>
                   <td>
                     <span className={`status-pill ${instrument.status}`}>
                       {instrument.status}
@@ -385,6 +425,8 @@ function instrumentFormPayload(form: FormData) {
     is_dca_eligible: form.get("is_dca_eligible") === "on",
     dca_confirm_cycle: Number(form.get("dca_confirm_cycle") || 1),
     notes: String(form.get("notes") || ""),
+    backtest_config_key: String(form.get("backtest_config_key") || ""),
+    tracking_index: String(form.get("tracking_index") || ""),
   };
 }
 

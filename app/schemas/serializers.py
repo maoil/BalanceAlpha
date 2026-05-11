@@ -61,6 +61,8 @@ def serialize_instrument(instrument) -> dict:
         "dca_confirm_cycle": instrument.dca_confirm_cycle,
         "status": instrument.status,
         "notes": instrument.notes,
+        "backtest_config_key": getattr(instrument, "backtest_config_key", None),
+        "tracking_index": getattr(instrument, "tracking_index", None),
         "created_at": _iso(getattr(instrument, "created_at", None)),
         "updated_at": _iso(getattr(instrument, "updated_at", None)),
     }
@@ -230,19 +232,39 @@ def serialize_signal_ai_analysis(analysis) -> dict | None:
 
 
 def serialize_backtest_run(run) -> dict:
+    """
+    序列化回测运行记录
+
+    第一阶段语义：单产品 backtesting.py 原生回测
+    """
     result = _json(run.result_json, {})
+    params = _json(run.params_json, {})
+
+    instrument = getattr(run, "instrument", None)
+
     return {
         "id": run.id,
         "run_name": run.run_name,
-        "template_id": run.template_id,
-        "template": serialize_strategy_template(run.template) if run.template else None,
+
+        "instrument_id": getattr(run, "instrument_id", None),
+        "instrument": serialize_instrument(instrument) if instrument else None,
+        "backtest_config_key": getattr(run, "backtest_config_key", None),
+
         "start_date": _iso(run.start_date),
         "end_date": _iso(run.end_date),
-        "params": _json(run.params_json, {}),
+        "warmup_start_date": _iso(getattr(run, "warmup_start_date", None)),
+
+        "params": params,
         "result": result,
+
+        "scope": result.get("scope", {}) if isinstance(result, dict) else {},
         "summary": result.get("summary", {}) if isinstance(result, dict) else {},
+
         "status": run.status,
         "created_at": _iso(getattr(run, "created_at", None)),
+
+        "template_id": run.template_id,
+        "template": serialize_strategy_template(run.template) if run.template else None,
     }
 
 

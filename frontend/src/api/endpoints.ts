@@ -2,6 +2,7 @@ import { apiRequest, buildQuery, jsonBody, type QueryParams } from "./client";
 import type {
   Account,
   AssetTrend,
+  BacktestConfig,
   BacktestRun,
   DashboardSnapshot,
   Instrument,
@@ -28,6 +29,8 @@ export const api = {
     apiRequest<AssetTrend>(`/dashboard/asset-trend${buildQuery({ days })}`),
   performanceSummary: () =>
     apiRequest<PerformanceSummary>("/dashboard/performance-summary"),
+
+  backtestConfigs: () => apiRequest<BacktestConfig[]>("/backtest-configs"),
 
   instruments: (params: QueryParams = {}) =>
     apiRequest<Instrument[]>(`/instruments${buildQuery(params)}`),
@@ -112,6 +115,10 @@ export const api = {
       method: "POST",
       body: jsonBody(signalDate ? { signal_date: signalDate } : {}),
     }),
+  strategySignals: (instrumentId?: number) =>
+    apiRequest<Array<Record<string, unknown>>>(
+      `/strategy-signals${buildQuery(instrumentId ? { instrument_id: instrumentId } : {})}`
+    ),
   signalHistory: (params: QueryParams = {}) =>
     apiRequest<Signal[]>(`/signals/history${buildQuery(params)}`),
   signalAiAnalysis: (id: number) =>

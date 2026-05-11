@@ -749,6 +749,143 @@ def test_exchange_traded_buy_api_still_creates_trade(client, factories):
     assert pending_count == 0
 
 
+def test_create_instrument_api_persists_zero_confirm_cycle(client):
+    response = client.post(
+        "/api/v1/instruments",
+        json={
+            "symbol": "600000",
+            "name": "Future Stock",
+            "instrument_type": "stock",
+            "trade_mode": "exchange_traded",
+            "default_account_type": "core",
+            "is_dca_eligible": False,
+            "dca_confirm_cycle": 0,
+            "status": "active",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.get_json()["data"]["dca_confirm_cycle"] == 0
+
+
+def test_zero_confirm_cycle_trade_rejects_missing_fee(client, factories):
+    account = factories.create_account(
+        account_code="core-t0-missing-fee",
+        account_name="T0 Missing Fee",
+        account_type="core",
+    )
+    instrument = factories.create_instrument(
+        symbol="161725-t0-fee",
+        name="T0 Product",
+        instrument_type="fund",
+        trade_mode="eod_nav",
+    )
+    instrument.dca_confirm_cycle = 0
+    db.session.commit()
+
+    response = client.post(
+        "/api/v1/trades",
+        json={
+            "account_id": account.id,
+            "instrument_id": instrument.id,
+            "trade_date": date.today().isoformat(),
+            "trade_type": "buy",
+            "quantity": 100,
+            "price": 2,
+            "amount": 200,
+        },
+    )
+
+    assert response.status_code == 400
+    assert "fee is required" in response.get_json()["error"]["message"]
+    assert Trade.query.count() == 0
+    assert ManualFundOrder.query.count() == 0
+
+
+def test_zero_confirm_cycle_trade_rejects_missing_price_without_pending_order(
+    client, factories
+):
+    account = factories.create_account(
+        account_code="core-t0-missing-price",
+        account_name="T0 Missing Price",
+        account_type="core",
+    )
+    instrument = factories.create_instrument(
+        symbol="161725-t0-price",
+        name="T0 Product",
+        instrument_type="fund",
+        trade_mode="eod_nav",
+    )
+    instrument.dca_confirm_cycle = 0
+    db.session.commit()
+
+    response = client.post(
+        "/api/v1/trades",
+        json={
+            "account_id": account.id,
+            "instrument_id": instrument.id,
+            "trade_date": date.today().isoformat(),
+            "trade_type": "buy",
+            "quantity": 100,
+            "amount": 200,
+            "fee": 0,
+        },
+    )
+
+    assert response.status_code == 400
+    assert "price is required" in response.get_json()["error"]["message"]
+    assert Trade.query.count() == 0
+    assert ManualFundOrder.query.count() == 0
+
+
+def test_zero_confirm_cycle_trade_creates_trade_and_updates_position(
+    client, factories
+):
+    from app.models.position import Position
+
+    account = factories.create_account(
+        account_code="core-t0-trade",
+        account_name="T0 Trade",
+        account_type="core",
+    )
+    instrument = factories.create_instrument(
+        symbol="161725-t0-ok",
+        name="T0 Product",
+        instrument_type="fund",
+        trade_mode="eod_nav",
+    )
+    instrument.dca_confirm_cycle = 0
+    db.session.commit()
+
+    response = client.post(
+        "/api/v1/trades",
+        json={
+            "account_id": account.id,
+            "instrument_id": instrument.id,
+            "trade_date": date.today().isoformat(),
+            "trade_type": "buy",
+            "quantity": 100,
+            "price": 2,
+            "amount": 200,
+            "fee": 0,
+        },
+    )
+
+    assert response.status_code == 201
+    payload = response.get_json()["data"]
+    assert payload["quantity"] == 100
+    assert payload["price"] == 2
+    assert payload["amount"] == 200
+    assert payload["fee"] == 0
+    assert payload["source_order"] is None
+    assert Trade.query.count() == 1
+    assert ManualFundOrder.query.count() == 0
+
+    position = Position.query.one()
+    assert position.quantity == 100
+    assert position.avg_cost == 2
+
+
 def test_manual_fund_order_confirm_api_returns_not_ready_error_before_expected_date(
     client, factories, monkeypatch
 ):

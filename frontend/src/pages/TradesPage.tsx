@@ -22,10 +22,15 @@ export function TradesPage() {
   const selectedCreateInstrument = instruments.data?.find(
     (item) => String(item.id) === createInstrumentId
   );
+  const isRealtimeTrade = selectedCreateInstrument?.dca_confirm_cycle === 0;
   const isFundBuyTrade =
-    selectedCreateInstrument?.instrument_type === "fund" && createTradeType === "buy";
+    !isRealtimeTrade &&
+    selectedCreateInstrument?.instrument_type === "fund" &&
+    createTradeType === "buy";
   const isFundSellTrade =
-    selectedCreateInstrument?.instrument_type === "fund" && createTradeType === "sell";
+    !isRealtimeTrade &&
+    selectedCreateInstrument?.instrument_type === "fund" &&
+    createTradeType === "sell";
 
   useEffect(() => {
     if (!createInstrumentId) {
@@ -73,7 +78,7 @@ export function TradesPage() {
         quantity: optionalNumber(form.get("quantity")),
         price: optionalNumber(form.get("price")),
         amount: optionalNumber(form.get("amount")),
-        fee: optionalNumber(form.get("fee")) || 0,
+        fee: optionalNumber(form.get("fee")) ?? (isRealtimeTrade ? undefined : 0),
         reason_code: String(form.get("reason_code") || ""),
         notes: String(form.get("notes") || ""),
       });
@@ -189,24 +194,48 @@ export function TradesPage() {
               {!isFundBuyTrade && (
               <label>
                 数量
-                <input name="quantity" min="0" step="0.0001" type="number" />
+                <input
+                  name="quantity"
+                  min="0"
+                  required={isRealtimeTrade}
+                  step="0.0001"
+                  type="number"
+                />
               </label>
               )}
               {!isFundBuyTrade && !isFundSellTrade && (
               <label>
                 价格
-                <input name="price" min="0" step="0.0001" type="number" />
+                <input
+                  name="price"
+                  min="0"
+                  required={isRealtimeTrade}
+                  step="0.0001"
+                  type="number"
+                />
               </label>
               )}
               {!isFundSellTrade && (
               <label>
                 金额
-                <input name="amount" min="0" step="0.01" type="number" />
+                <input
+                  name="amount"
+                  min="0"
+                  required={isRealtimeTrade}
+                  step="0.01"
+                  type="number"
+                />
               </label>
               )}
               <label>
                 手续费
-                <input name="fee" min="0" step="0.01" type="number" />
+                <input
+                  name="fee"
+                  min="0"
+                  required={isRealtimeTrade}
+                  step="0.01"
+                  type="number"
+                />
               </label>
               <label>
                 原因

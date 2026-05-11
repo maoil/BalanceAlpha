@@ -18,6 +18,10 @@ class ManualFundOrderService:
 
     @staticmethod
     def should_create_pending_order(instrument, side: str) -> bool:
+        confirm_cycle = getattr(instrument, "dca_confirm_cycle", None)
+        if confirm_cycle is not None and int(confirm_cycle) == 0:
+            return False
+
         return (
             instrument.instrument_type == "fund"
             and instrument.trade_mode == "eod_nav"
