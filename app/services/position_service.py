@@ -99,6 +99,54 @@ class PositionService:
         return position
 
     @staticmethod
+    def reverse_from_trade(
+        account_id: int,
+        instrument_id: int,
+        side: str,
+        quantity: float,
+        price: float,
+        commit: bool = True,
+        recalculate_weights: Optional[bool] = None,
+    ) -> Position:
+        """Undo a trade's effect on position. Reverses the logic in update_from_trade."""
+        if recalculate_weights is None:
+            recalculate_weights = commit
+
+        position = PositionService.get_or_create(
+            account_id=account_id,
+            instrument_id=instrument_id,
+            commit=False,
+        )
+
+        if side == "buy":
+            old_total_cost = position.quantity * position.avg_cost
+            new_quantity = position.quantity - quantity
+            if new_quantity > 0:
+                position.avg_cost = (old_total_cost - quantity * price) / new_quantity
+            else:
+                new_quantity = 0
+                position.avg_cost = 0
+            position.quantity = new_quantity
+        else:
+            position.quantity += quantity
+
+        position.position_status = (
+            PositionStatus.CLOSED.value
+            if position.quantity == 0
+            else PositionStatus.OPEN.value
+        )
+        position.update_market_value()
+
+        if recalculate_weights:
+            PositionService.recalculate_weights()
+
+        if commit:
+            db.session.commit()
+        else:
+            db.session.flush()
+        return position
+
+    @staticmethod
     def refresh_market_prices() -> int:
         positions = Position.query.filter_by(
             position_status=PositionStatus.OPEN.value

@@ -4,7 +4,7 @@ import { api } from "../api/endpoints";
 import { DataState, Notice } from "../components/DataState";
 import { useAsyncData, useMutationStatus } from "../hooks";
 import { formatNumber, formatPercent, formatSignedNumber, valueTone } from "../utils/format";
-import type { Position } from "../types";
+import type { Position, PositionTrend, PositionTrendSnapshot } from "../types";
 
 type PositionDraft = {
   quantity: string;
@@ -22,7 +22,14 @@ export function PositionsPage() {
     () => api.positions({ account_id: accountId || undefined }),
     [accountId]
   );
+  const positionTrends = useAsyncData(
+    () => api.positionTrends({ account_id: accountId || undefined }),
+    [accountId]
+  );
   const mutation = useMutationStatus();
+  const trendByPositionId = new Map(
+    (positionTrends.data?.positions || []).map((trend) => [trend.position_id, trend])
+  );
 
   async function createPosition(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -39,6 +46,7 @@ export function PositionsPage() {
         unrealized_pnl: Number(form.get("unrealized_pnl") || 0),
       });
       await positions.reload();
+      await positionTrends.reload();
       setShowCreateForm(false);
       formElement.reset();
     }, "持仓已创建");
@@ -68,6 +76,7 @@ export function PositionsPage() {
         market_price: Number(editDraft.market_price),
       });
       await positions.reload();
+      await positionTrends.reload();
       setEditingPositionId(null);
       setEditDraft(null);
     }, "持仓已修改");
@@ -96,6 +105,7 @@ export function PositionsPage() {
               mutation.run(async () => {
                 await api.refreshPositionPrices();
                 await positions.reload();
+                await positionTrends.reload();
               }, "价格已按本地行情刷新")
             }
           >
@@ -109,6 +119,7 @@ export function PositionsPage() {
               mutation.run(async () => {
                 await api.refreshPositions();
                 await positions.reload();
+                await positionTrends.reload();
               }, "持仓与待确认基金已刷新")
             }
           >
@@ -212,20 +223,20 @@ export function PositionsPage() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>账户</th>
                 <th>产品名称</th>
+                <th>趋势</th>
                 <th>市值</th>
                 <th>盈亏</th>
-                <th>权重</th>
+                <th>今日涨幅</th>
                 <th>操作</th>
               </tr>
             </thead>
             <tbody>
               {positions.data?.map((position) => {
                 const isEditing = editingPositionId === position.id && editDraft;
+                const trendSnapshot = trendByPositionId.get(position.id) || null;
                 return (
                   <tr key={position.id}>
-                    <td>{position.account?.account_name || position.account_id}</td>
                     <td>
                       <div className="stacked-cell">
                         <strong>
@@ -233,16 +244,42 @@ export function PositionsPage() {
                             position.instrument?.symbol ||
                             position.instrument_id}
                         </strong>
-                        {position.instrument?.symbol && (
-                          <span>{position.instrument.symbol}</span>
-                        )}
+                        <span className="position-meta">
+                          {position.instrument?.symbol && (
+                            <span>{position.instrument.symbol}</span>
+                          )}
+                          {position.instrument?.instrument_type && (
+                            <span
+                              className={`type-badge ${position.instrument.instrument_type}`}
+                            >
+                              {instrumentTypeLabel(position.instrument.instrument_type)}
+                            </span>
+                          )}
+                        </span>
                       </div>
+                    </td>
+                    <td>
+                      <PositionSparkline
+                        position={position}
+                        trend={trendSnapshot?.trend || null}
+                      />
                     </td>
                     <td>{formatNumber(position.market_value)}</td>
                     <td className={`pnl-cell ${valueTone(position.unrealized_pnl)}`}>
-                      {formatSignedNumber(position.unrealized_pnl)}
+                      <span className={`pnl-cell ${valueTone(position.unrealized_pnl)}`}>
+                        {formatSignedNumber(position.unrealized_pnl)}
+                      </span>
+                      <small>{formatSignedPercent(position.unrealized_pnl_pct)}</small>
                     </td>
-                    <td>{formatPercent(position.weight_in_account)}</td>
+                    <td>
+                      <span
+                        className={`trend-change ${valueTone(
+                          todayChangePct(trendSnapshot)
+                        )}`}
+                      >
+                        {formatSignedPercent(todayChangePct(trendSnapshot))}
+                      </span>
+                    </td>
                     <td className="action-row">
                       {isEditing ? (
                         <>
@@ -320,4 +357,71 @@ export function PositionsPage() {
       </section>
     </div>
   );
+}
+
+function PositionSparkline({
+  position,
+  trend,
+}: {
+  position: Position;
+  trend: PositionTrend | null;
+}) {
+  const points = (trend?.points || []).filter((point) => Number.isFinite(point.value));
+  if (points.length < 2) {
+    return null;
+  }
+
+  const width = 124;
+  const height = 44;
+  const padding = 3;
+  const values = points.map((point) => point.value);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min;
+  const coordinates = points.map((point, index) => {
+    const x = padding + (index * (width - padding * 2)) / (points.length - 1);
+    const y =
+      range === 0
+        ? height / 2
+        : height - padding - ((point.value - min) / range) * (height - padding * 2);
+    return `${x.toFixed(2)},${y.toFixed(2)}`;
+  });
+  const label =
+    position.instrument?.name ||
+    position.instrument?.symbol ||
+    String(position.instrument_id);
+
+  return (
+    <svg
+      aria-label={`${label} trend`}
+      className={`position-sparkline ${valueTone(trend?.change_pct)}`}
+      role="img"
+      viewBox={`0 0 ${width} ${height}`}
+    >
+      <title>{`${label} trend`}</title>
+      <polyline points={coordinates.join(" ")} />
+    </svg>
+  );
+}
+
+function todayChangePct(snapshot: PositionTrendSnapshot | null) {
+  return snapshot?.today_change_pct ?? null;
+}
+
+function formatSignedPercent(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return "-";
+  }
+  const prefix = value > 0 ? "+" : "";
+  return `${prefix}${formatPercent(value)}`;
+}
+
+function instrumentTypeLabel(value?: string | null) {
+  const labels: Record<string, string> = {
+    etf: "ETF",
+    lof: "LOF",
+    fund: "基金",
+    cash: "现金",
+  };
+  return labels[value || ""] || value || "-";
 }

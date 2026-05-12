@@ -348,6 +348,144 @@ def test_positions_api_lists_and_filters_positions(client, factories):
     assert payload[0]["market_value"] == 200
 
 
+def test_positions_api_does_not_fetch_intraday_trends(
+    client,
+    factories,
+    monkeypatch,
+):
+    from app.services.position_trend_service import PositionTrendService
+
+    account = factories.create_account(
+        account_code="core-position-trend",
+        account_name="Core Position Trend",
+        account_type="core",
+    )
+    instrument = factories.create_instrument(symbol="510500-trend", name="CSI 500 ETF")
+    factories.create_position(
+        account_id=account.id,
+        instrument_id=instrument.id,
+        quantity=50,
+        avg_cost=3,
+        market_price=4,
+    )
+
+    monkeypatch.setattr(
+        PositionTrendService,
+        "build_for_position",
+        staticmethod(lambda position: (_ for _ in ()).throw(AssertionError("trend called"))),
+    )
+
+    response = client.get(f"/api/v1/positions?account_id={account.id}")
+
+    assert response.status_code == 200
+    payload = response.get_json()["data"]
+    assert payload[0]["instrument"]["symbol"] == "510500-trend"
+    assert "trend" not in payload[0]
+
+
+def test_positions_trends_api_returns_intraday_trend_and_today_change(
+    client,
+    factories,
+    monkeypatch,
+):
+    from app.services.position_trend_service import PositionTrendService
+
+    account = factories.create_account(
+        account_code="core-position-trend-api",
+        account_name="Core Position Trend API",
+        account_type="core",
+    )
+    instrument = factories.create_instrument(symbol="510500-trend-api", name="CSI 500 ETF")
+    position = factories.create_position(
+        account_id=account.id,
+        instrument_id=instrument.id,
+        quantity=50,
+        avg_cost=3,
+        market_price=4,
+    )
+
+    monkeypatch.setattr(
+        PositionTrendService,
+        "_fetch_intraday_history",
+        staticmethod(
+            lambda symbol: [
+                {"time": "2026-05-12 09:31:00", "value": 3.8},
+                {"time": "2026-05-12 14:55:00", "value": 4.0},
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        PositionTrendService,
+        "_fetch_realtime_change_pct",
+        staticmethod(lambda symbol: 0.0123),
+    )
+
+    response = client.get(f"/api/v1/positions/trends?account_id={account.id}")
+
+    assert response.status_code == 200
+    payload = response.get_json()["data"]
+    assert payload["positions"] == [
+        {
+            "position_id": position.id,
+            "today_change_pct": 0.0123,
+            "trend": {
+                "source_type": "instrument",
+                "interval": "intraday",
+                "symbol": "510500-trend-api",
+                "points": [
+                    {"time": "2026-05-12 09:31:00", "value": 3.8},
+                    {"time": "2026-05-12 14:55:00", "value": 4.0},
+                ],
+                "change_pct": 0.0526,
+            },
+        }
+    ]
+
+
+def test_positions_trends_api_returns_no_today_change_without_realtime_quote(
+    client,
+    factories,
+    monkeypatch,
+):
+    from app.services.position_trend_service import PositionTrendService
+
+    account = factories.create_account(
+        account_code="core-position-no-trend",
+        account_name="Core Position No Trend",
+        account_type="core",
+    )
+    instrument = factories.create_instrument(symbol="020840-no-trend", name="Unbound Fund")
+    position = factories.create_position(
+        account_id=account.id,
+        instrument_id=instrument.id,
+        quantity=100,
+        avg_cost=1,
+        market_price=1.1,
+    )
+    monkeypatch.setattr(
+        PositionTrendService,
+        "_fetch_intraday_history",
+        staticmethod(lambda symbol: []),
+    )
+    monkeypatch.setattr(
+        PositionTrendService,
+        "_fetch_realtime_change_pct",
+        staticmethod(lambda symbol: None),
+    )
+
+    response = client.get(f"/api/v1/positions/trends?account_id={account.id}")
+
+    assert response.status_code == 200
+    payload = response.get_json()["data"]
+    assert payload["positions"] == [
+        {
+            "position_id": position.id,
+            "today_change_pct": None,
+            "trend": None,
+        }
+    ]
+
+
 def test_position_api_patch_updates_position_without_csrf_token(client, factories):
     account = factories.create_account(
         account_code="core-patch",

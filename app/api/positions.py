@@ -6,12 +6,26 @@ from app.schemas.serializers import serialize_position
 from app.services.account_service import AccountService
 from app.services.instrument_service import InstrumentService
 from app.services.position_service import PositionService
+from app.services.position_trend_service import PositionTrendService
 
 
 @bp.get("/positions")
 def list_positions():
     positions = PositionService.get_all(account_id=request.args.get("account_id", type=int))
     return success([serialize_position(position) for position in positions])
+
+
+@bp.get("/positions/trends")
+def list_position_trends():
+    positions = PositionService.get_all(account_id=request.args.get("account_id", type=int))
+    return success(
+        {
+            "positions": [
+                PositionTrendService.build_snapshot_for_position(position)
+                for position in positions
+            ]
+        }
+    )
 
 
 @bp.post("/positions")

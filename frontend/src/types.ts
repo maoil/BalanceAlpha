@@ -59,6 +59,26 @@ export type Position = {
   updated_at?: string | null;
 };
 
+export type PositionTrendPoint = {
+  date?: string;
+  time?: string;
+  value: number;
+};
+
+export type PositionTrend = {
+  source_type: "instrument" | "tracking_index" | string;
+  interval?: "intraday" | "daily" | string;
+  symbol: string;
+  points: PositionTrendPoint[];
+  change_pct?: number | null;
+};
+
+export type PositionTrendSnapshot = {
+  position_id: number;
+  trend: PositionTrend | null;
+  today_change_pct?: number | null;
+};
+
 export type TradeSourceOrder = {
   id: number;
   order_date?: string | null;
@@ -157,15 +177,44 @@ export type SignalAiAnalysis = {
   output: Record<string, unknown>;
 };
 
+export type StrategySignal = {
+  instrument_id: number;
+  symbol: string;
+  name: string;
+  strategy?: string;
+  signal_date?: string;
+  execution_date?: string;
+  execution_timing?: string;
+  execution_price_known?: boolean;
+  execution_price_note?: string;
+  risk_filter?: {
+    enabled: boolean;
+    source: string;
+    suggestion: string;
+  };
+  signal: string;
+  signal_type?: string;
+  explanation?: string;
+  latest_price?: number;
+  latest_date?: string;
+  data_source?: string;
+  indicators?: Record<string, unknown>;
+};
+
 export type BacktestRun = {
   id: number;
   run_name: string;
+  instrument_id?: number | null;
+  instrument?: Instrument | null;
+  backtest_config_key?: string | null;
   template_id?: number | null;
   template?: StrategyTemplate | null;
   start_date: string;
   end_date: string;
+  warmup_start_date?: string | null;
   params: Record<string, unknown>;
   result: Record<string, unknown>;
+  scope?: Record<string, unknown>;
   summary: Record<string, unknown>;
   status: string;
   created_at?: string | null;

@@ -9,8 +9,10 @@ import type {
   ManualFundOrder,
   PerformanceSummary,
   Position,
+  PositionTrendSnapshot,
   Signal,
   SignalAiAnalysis,
+  StrategySignal,
   StrategyPerformance,
   StrategyTemplate,
   SystemLog,
@@ -71,6 +73,10 @@ export const api = {
 
   positions: (params: QueryParams = {}) =>
     apiRequest<Position[]>(`/positions${buildQuery(params)}`),
+  positionTrends: (params: QueryParams = {}) =>
+    apiRequest<{ positions: PositionTrendSnapshot[] }>(
+      `/positions/trends${buildQuery(params)}`
+    ),
   createPosition: (payload: Record<string, unknown>) =>
     apiRequest<Position>("/positions", {
       method: "POST",
@@ -100,6 +106,12 @@ export const api = {
       body: jsonBody(payload),
     }),
 
+  revokeTrade: (id: number) =>
+    apiRequest<{ revoked_trade_id: number; reset_order_id: number | null }>(
+      `/trades/${id}`,
+      { method: "DELETE" }
+    ),
+
   manualFundOrders: (params: QueryParams = {}) =>
     apiRequest<ManualFundOrder[]>(`/manual-fund-orders${buildQuery(params)}`),
   confirmManualFundOrder: (id: number) =>
@@ -107,6 +119,10 @@ export const api = {
       `/manual-fund-orders/${id}/confirm`,
       { method: "POST" }
     ),
+  revokeManualFundOrder: (id: number) =>
+    apiRequest<ManualFundOrder>(`/manual-fund-orders/${id}/revoke`, {
+      method: "POST",
+    }),
 
   signals: (params: QueryParams = {}) =>
     apiRequest<Signal[]>(`/signals${buildQuery(params)}`),
@@ -116,7 +132,7 @@ export const api = {
       body: jsonBody(signalDate ? { signal_date: signalDate } : {}),
     }),
   strategySignals: (instrumentId?: number) =>
-    apiRequest<Array<Record<string, unknown>>>(
+    apiRequest<StrategySignal[]>(
       `/strategy-signals${buildQuery(instrumentId ? { instrument_id: instrumentId } : {})}`
     ),
   signalHistory: (params: QueryParams = {}) =>

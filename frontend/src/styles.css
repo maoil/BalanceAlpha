@@ -368,6 +368,15 @@ textarea {
   font-size: 13px;
 }
 
+.ghost-button.danger {
+  color: #9f2f2f;
+  border-color: #e8c4c4;
+}
+
+.ghost-button.danger:hover:not(:disabled) {
+  background: #fff0ee;
+}
+
 .icon-button {
   min-width: 30px;
   border-color: #cbd8d2;
@@ -455,6 +464,19 @@ button:disabled {
   gap: 3px;
 }
 
+.position-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.position-meta .type-badge {
+  min-height: 20px;
+  padding: 0 7px;
+  font-size: 11px;
+}
+
 .stacked-cell span,
 .compact-field {
   color: #66736f;
@@ -474,6 +496,50 @@ button:disabled {
 
 .pnl-cell {
   font-weight: 700;
+}
+
+.pnl-cell span,
+.pnl-cell small {
+  display: block;
+}
+
+.pnl-cell small {
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.position-sparkline {
+  display: block;
+  width: 124px;
+  height: 44px;
+}
+
+.position-sparkline polyline {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.trend-change {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 68px;
+  min-height: 28px;
+  border-radius: 999px;
+  background: #f4f7f5;
+  font-weight: 700;
+}
+
+.trend-change.positive {
+  background: #fff0ee;
+}
+
+.trend-change.negative {
+  background: #e9f6ef;
 }
 
 .state-block,
@@ -547,6 +613,11 @@ button:disabled {
 .status-pill.failed {
   background: #fff0ee;
   color: #9f2f2f;
+}
+
+.status-pill.cancelled {
+  background: #f5f5f5;
+  color: #888;
 }
 
 .type-badge {

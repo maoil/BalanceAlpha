@@ -4,20 +4,7 @@ import { RefreshCw } from "lucide-react";
 import { api } from "../api/endpoints";
 import { DataState, Notice } from "../components/DataState";
 import { useAsyncData, useMutationStatus } from "../hooks";
-
-type StrategySignal = {
-  instrument_id: number;
-  symbol: string;
-  name: string;
-  strategy?: string;
-  signal: string;
-  signal_type?: string;
-  explanation?: string;
-  latest_price?: number;
-  latest_date?: string;
-  data_source?: string;
-  indicators?: Record<string, unknown>;
-};
+import type { StrategySignal } from "../types";
 
 export function SignalsPage() {
   const [detail, setDetail] = useState<StrategySignal | null>(null);
@@ -29,7 +16,7 @@ export function SignalsPage() {
       <div className="page-header">
         <div>
           <h1>策略信号</h1>
-          <p>基于 Python 策略代码生成的实时交易信号</p>
+          <p>基于 T 日收盘数据生成信号，并提示 T+1 基金净值执行风险</p>
         </div>
         <button
           className="primary-button"
@@ -63,7 +50,8 @@ export function SignalsPage() {
                   <th>名称</th>
                   <th>策略</th>
                   <th>信号</th>
-                  <th>最新价</th>
+                  <th>信号日期</th>
+                  <th>建议执行</th>
                   <th>数据来源</th>
                   <th>说明</th>
                 </tr>
@@ -83,7 +71,8 @@ export function SignalsPage() {
                         {signal.signal}
                       </span>
                     </td>
-                    <td>{signal.latest_price?.toFixed(4) || "-"}</td>
+                    <td>{signal.signal_date || signal.latest_date || "-"}</td>
+                    <td>{formatExecution(signal)}</td>
                     <td>{signal.data_source || "-"}</td>
                     <td className="explanation-cell">{signal.explanation || "-"}</td>
                   </tr>
@@ -119,8 +108,14 @@ export function SignalsPage() {
                 </dd>
                 <dt>最新价</dt>
                 <dd>{detail.latest_price?.toFixed(4) || "-"}</dd>
-                <dt>数据日期</dt>
-                <dd>{detail.latest_date || "-"}</dd>
+                <dt>信号日期</dt>
+                <dd>{detail.signal_date || detail.latest_date || "-"}</dd>
+                <dt>建议执行</dt>
+                <dd>{formatExecution(detail)}</dd>
+                <dt>成交说明</dt>
+                <dd>{detail.execution_price_note || "-"}</dd>
+                <dt>风控提示</dt>
+                <dd>{detail.risk_filter?.suggestion || "-"}</dd>
                 <dt>说明</dt>
                 <dd>{detail.explanation || "-"}</dd>
               </dl>
@@ -202,4 +197,11 @@ export function SignalsPage() {
       `}</style>
     </div>
   );
+}
+
+function formatExecution(signal: StrategySignal) {
+  if (!signal.execution_date) {
+    return "-";
+  }
+  return `${signal.execution_date} ${signal.execution_timing || ""}`.trim();
 }

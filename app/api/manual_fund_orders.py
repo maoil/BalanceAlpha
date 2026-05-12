@@ -37,6 +37,18 @@ def get_manual_fund_order(order_id: int):
     return success(serialize_manual_fund_order(order))
 
 
+@bp.post("/manual-fund-orders/<int:order_id>/revoke")
+def revoke_manual_fund_order(order_id: int):
+    try:
+        order = ManualFundOrderService.revoke_order(order_id)
+    except LookupError as exc:
+        return error("not_found", str(exc), 404)
+    except ValueError as exc:
+        return error("validation_error", str(exc), 400)
+
+    return success(serialize_manual_fund_order(order))
+
+
 @bp.post("/manual-fund-orders/<int:order_id>/confirm")
 def confirm_manual_fund_order(order_id: int):
     try:

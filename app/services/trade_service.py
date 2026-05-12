@@ -166,5 +166,53 @@ class TradeService:
         return trade
 
     @staticmethod
+    def revoke(trade_id: int) -> dict:
+        """Revoke a trade: reverse position effect, delete trade, reset linked order."""
+        trade = TradeService.get_by_id(trade_id)
+        if trade is None:
+            raise LookupError("Trade not found")
+
+        linked_order = None
+        if trade.source_type == "manual_fund_order" and trade.source_id:
+            from app.models.manual_fund_order import ManualFundOrder
+            linked_order = db.session.get(ManualFundOrder, trade.source_id)
+
+        try:
+            PositionService.reverse_from_trade(
+                account_id=trade.account_id,
+                instrument_id=trade.instrument_id,
+                side=trade.side,
+                quantity=trade.quantity or 0,
+                price=trade.price or 0,
+                commit=False,
+                recalculate_weights=False,
+            )
+
+            if linked_order:
+                linked_order.status = "cancelled"
+                linked_order.linked_trade_id = None
+                linked_order.actual_confirm_date = None
+                linked_order.confirm_nav = None
+                linked_order.confirm_quantity = None
+                linked_order.quote_date_used = None
+
+            db.session.delete(trade)
+            PositionService.recalculate_weights()
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            raise
+
+        LogService.log(
+            log_type="manual",
+            level="info",
+            module="trade",
+            message=f"Revoked trade {trade_id}: {trade.side} {trade.quantity} @ {trade.price}",
+            context={"trade_id": trade_id, "instrument_id": trade.instrument_id},
+        )
+
+        return {"revoked_trade_id": trade_id, "reset_order_id": linked_order.id if linked_order else None}
+
+    @staticmethod
     def get_recent(limit: int = 10) -> list[Trade]:
         return Trade.query.order_by(Trade.trade_date.desc(), Trade.id.desc()).limit(limit).all()

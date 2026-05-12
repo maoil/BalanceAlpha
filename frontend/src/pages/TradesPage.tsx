@@ -270,6 +270,7 @@ export function TradesPage() {
                 <th>数量</th>
                 <th>成交价/净值</th>
                 <th>金额</th>
+                <th>操作</th>
               </tr>
             </thead>
             <tbody>
@@ -307,6 +308,22 @@ export function TradesPage() {
                       )}
                     </td>
                     <td>{formatNumber(trade.amount)}</td>
+                    <td>
+                      <button
+                        className="ghost-button small danger"
+                        disabled={mutation.busy}
+                        type="button"
+                        onClick={() => {
+                          if (!confirm("确认撤回该交易？持仓将同步回退。")) return;
+                          mutation.run(async () => {
+                            await api.revokeTrade(trade.id);
+                            await trades.reload();
+                          }, "交易已撤回");
+                        }}
+                      >
+                        撤回
+                      </button>
+                    </td>
                   </tr>
                 );
               })}

@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "../api/endpoints";
+import { BacktestsPage } from "./BacktestsPage";
 import { InstrumentsPage } from "./InstrumentsPage";
 import { PositionsPage } from "./PositionsPage";
 import { TradesPage } from "./TradesPage";
@@ -11,12 +12,15 @@ const mockApi = vi.hoisted(() => ({
   accounts: vi.fn(),
   instruments: vi.fn(),
   positions: vi.fn(),
+  positionTrends: vi.fn(),
   trades: vi.fn(),
+  backtests: vi.fn(),
   createInstrument: vi.fn(),
   updateInstrument: vi.fn(),
   createPosition: vi.fn(),
   updatePosition: vi.fn(),
   createTrade: vi.fn(),
+  createBacktest: vi.fn(),
   fetchAllPrices: vi.fn(),
   fetchInstrumentPrice: vi.fn(),
   fetchInstrumentHistory: vi.fn(),
@@ -41,12 +45,15 @@ describe("create form buttons", () => {
     ]);
     mockApi.instruments.mockResolvedValue([]);
     mockApi.positions.mockResolvedValue([]);
+    mockApi.positionTrends.mockResolvedValue({ positions: [] });
     mockApi.trades.mockResolvedValue([]);
+    mockApi.backtests.mockResolvedValue([]);
     mockApi.createInstrument.mockResolvedValue({});
     mockApi.updateInstrument.mockResolvedValue({});
     mockApi.createPosition.mockResolvedValue({});
     mockApi.updatePosition.mockResolvedValue({});
     mockApi.createTrade.mockResolvedValue({});
+    mockApi.createBacktest.mockResolvedValue({});
     mockApi.fetchAllPrices.mockResolvedValue({});
     mockApi.fetchInstrumentPrice.mockResolvedValue({});
     mockApi.fetchInstrumentHistory.mockResolvedValue({});
@@ -106,6 +113,8 @@ describe("create form buttons", () => {
       default_account_type: "core",
       is_dca_eligible: false,
       dca_confirm_cycle: 2,
+      backtest_config_key: "",
+      tracking_index: "",
       notes: "",
     });
   });
@@ -219,6 +228,112 @@ describe("create form buttons", () => {
     expect(screen.getByRole("dialog", { name: "新增交易" })).toHaveClass("small-modal");
     expect(screen.getByLabelText("日期")).toBeInTheDocument();
     expect(screen.getByLabelText("类型")).toBeInTheDocument();
+  });
+
+  it("submits native backtest payload without legacy account or template fields", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.instruments).mockResolvedValue([
+      {
+        id: 31,
+        symbol: "510300",
+        name: "沪深300ETF",
+        instrument_type: "etf",
+        is_dca_eligible: false,
+        status: "active",
+      },
+    ]);
+
+    render(<BacktestsPage />);
+
+    await within(screen.getByLabelText("产品")).findByRole("option", {
+      name: "510300 沪深300ETF",
+    });
+    await user.type(screen.getByLabelText("名称"), "沪深300回测");
+    await user.selectOptions(screen.getByLabelText("产品"), "31");
+    await user.type(screen.getByLabelText("开始"), "2026-02-24");
+    await user.type(screen.getByLabelText("结束"), "2026-05-11");
+    await user.type(screen.getByLabelText("预热开始"), "2025-09-01");
+    await user.clear(screen.getByLabelText("初始资金"));
+    await user.type(screen.getByLabelText("初始资金"), "200000");
+    await user.clear(screen.getByLabelText("佣金"));
+    await user.type(screen.getByLabelText("佣金"), "0.0003");
+    await user.click(screen.getByRole("button", { name: "运行回测" }));
+
+    expect(api.createBacktest).toHaveBeenCalledWith({
+      run_name: "沪深300回测",
+      instrument_id: 31,
+      start_date: "2026-02-24",
+      end_date: "2026-05-11",
+      warmup_start_date: "2025-09-01",
+      initial_capital: 200000,
+      commission: 0.0003,
+    });
+  });
+
+  it("submits a native backtest without losing the form reset target", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.instruments).mockResolvedValue([
+      {
+        id: 31,
+        symbol: "510300",
+        name: "沪深300ETF",
+        instrument_type: "etf",
+        is_dca_eligible: false,
+        status: "active",
+      },
+    ]);
+
+    render(<BacktestsPage />);
+
+    await within(screen.getByLabelText("产品")).findByRole("option", {
+      name: "510300 沪深300ETF",
+    });
+    await user.selectOptions(screen.getByLabelText("产品"), "31");
+    await user.type(screen.getByLabelText("开始"), "2026-02-24");
+    await user.type(screen.getByLabelText("结束"), "2026-05-11");
+    await user.click(screen.getByRole("button", { name: "运行回测" }));
+
+    expect(await screen.findByText("回测已完成")).toBeInTheDocument();
+    expect(screen.queryByText(/Cannot read properties of null/)).not.toBeInTheDocument();
+  });
+
+  it("renders backtest result as Chinese indicator cards instead of raw JSON", async () => {
+    vi.mocked(api.backtests).mockResolvedValue([
+      {
+        id: 1,
+        run_name: "测试回测",
+        start_date: "2024-01-11",
+        end_date: "2026-05-11",
+        params: {},
+        result: {},
+        summary: {
+          return_pct: 127.3,
+          buy_hold_return_pct: 173.3,
+          equity_final: 227305.53,
+          max_drawdown_pct: -18.8,
+          sharpe_ratio: 1.24,
+          trade_count: 9,
+          win_rate_pct: 66.67,
+        },
+        status: "completed",
+      },
+    ]);
+
+    render(<BacktestsPage />);
+
+    const row = await screen.findByText("测试回测");
+    await userEvent.click(row);
+
+    expect(screen.getByText("策略回报")).toBeInTheDocument();
+    expect(screen.getByText("买入持有回报")).toBeInTheDocument();
+    expect(screen.getByText("最终资金")).toBeInTheDocument();
+    expect(screen.getByText("最大回撤")).toBeInTheDocument();
+    expect(screen.getByText("夏普比率")).toBeInTheDocument();
+    expect(screen.getByText("交易次数")).toBeInTheDocument();
+    expect(screen.getByText("胜率")).toBeInTheDocument();
+    expect(screen.getByText("跑赢持有")).toBeInTheDocument();
+    expect(screen.getByText("9")).toBeInTheDocument();
+    expect(screen.getByText("227,305.53")).toBeInTheDocument();
   });
 
   it("uses the styled date picker component in the new trade dialog", async () => {

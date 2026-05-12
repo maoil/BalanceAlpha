@@ -20,6 +20,41 @@ class StrategySignalService:
     """基于 Python 策略代码的信号生成服务"""
 
     @staticmethod
+    def _format_index_date(index_value) -> str:
+        if hasattr(index_value, "date"):
+            return index_value.date().isoformat()
+        return str(index_value)
+
+    @staticmethod
+    def _next_execution_date(signal_date: str) -> str:
+        current = date.fromisoformat(signal_date) + timedelta(days=1)
+        while current.weekday() >= 5:
+            current += timedelta(days=1)
+        return current.isoformat()
+
+    @staticmethod
+    def _execution_context(signal_date: str, source_type: str) -> Dict[str, Any]:
+        execution_date = StrategySignalService._next_execution_date(signal_date)
+        return {
+            "signal_date": signal_date,
+            "execution_date": execution_date,
+            "execution_timing": "T+1 15:00前",
+            "execution_price_known": False,
+            "execution_price_note": (
+                "基金按执行日净值成交，信号生成时执行日净值未知；"
+                "建议结合执行日盘中跟踪标的走势控制追高和转弱风险。"
+            ),
+            "risk_filter": {
+                "enabled": True,
+                "source": source_type,
+                "suggestion": (
+                    "买入信号次日若跟踪标的大涨过多、明显转弱或跌破关键均线，"
+                    "可降低仓位或取消买入；卖出信号优先执行。"
+                ),
+            },
+        }
+
+    @staticmethod
     def generate_signal_for_instrument(instrument_id: int) -> Dict[str, Any]:
         """
         为单个产品生成策略信号
@@ -76,11 +111,13 @@ class StrategySignalService:
             # 检查是否有追踪标的（ETF/指数），优先使用实时数据
             tracking_index = getattr(instrument, 'tracking_index', None)
             data_source = "基金净值"
+            source_type = "fund_nav"
             
             if tracking_index:
                 try:
                     df = sina_etf_daily(tracking_index, start=start_date, end=end_date)
                     data_source = f"追踪标的 {tracking_index}"
+                    source_type = "tracking_index"
                     logger.info(f"使用追踪标的数据: {tracking_index} for {instrument.symbol}")
                 except Exception as e:
                     logger.warning(f"获取追踪标的数据失败，回退到基金净值: {e}")
@@ -105,6 +142,7 @@ class StrategySignalService:
             # 获取最新一行数据用于信号判断
             latest = df.iloc[-1]
             prev = df.iloc[-2] if len(df) >= 2 else latest
+            signal_date = StrategySignalService._format_index_date(latest.name)
             
             # 根据策略类型判断信号
             signal_result = StrategySignalService._check_signal(
@@ -116,11 +154,12 @@ class StrategySignalService:
                 "symbol": instrument.symbol,
                 "name": instrument.name,
                 "strategy": config.name,
+                **StrategySignalService._execution_context(signal_date, source_type),
                 "signal": signal_result["signal"],
                 "signal_type": signal_result["type"],
                 "explanation": signal_result["explanation"],
                 "latest_price": float(latest["Close"]),
-                "latest_date": str(latest.name) if hasattr(latest.name, 'isoformat') else str(df.index[-1]),
+                "latest_date": signal_date,
                 "data_source": data_source,
                 "indicators": signal_result.get("indicators", {}),
             }

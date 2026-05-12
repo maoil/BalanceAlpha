@@ -462,6 +462,58 @@ class ManualFundOrderService:
         return {"order": order, "trade": trade, "created": True}
 
     @staticmethod
+    def revoke_order(order_id: int) -> ManualFundOrder:
+        """Revoke (cancel) a manual fund order.
+
+        Pending orders are simply marked cancelled.
+        Confirmed orders also have their linked trade deleted and position reversed.
+        """
+        order = ManualFundOrderService.get_by_id(order_id)
+        if order is None:
+            raise LookupError("Manual fund order not found")
+
+        if order.status == "cancelled":
+            raise ValueError("Order is already cancelled")
+
+        try:
+            if order.status == "confirmed" and order.linked_trade_id:
+                trade = db.session.get(Trade, order.linked_trade_id)
+                if trade:
+                    PositionService.reverse_from_trade(
+                        account_id=trade.account_id,
+                        instrument_id=trade.instrument_id,
+                        side=trade.side,
+                        quantity=trade.quantity or 0,
+                        price=trade.price or 0,
+                        commit=False,
+                        recalculate_weights=False,
+                    )
+                    db.session.delete(trade)
+
+            order.status = "cancelled"
+            order.linked_trade_id = None
+            order.actual_confirm_date = None
+            order.confirm_nav = None
+            order.confirm_quantity = None
+            order.quote_date_used = None
+
+            PositionService.recalculate_weights()
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            raise
+
+        LogService.log(
+            log_type="manual",
+            level="info",
+            module="manual_fund_order",
+            message=f"Revoked manual fund order {order.id}",
+            context={"order_id": order.id, "instrument_id": order.instrument_id},
+        )
+
+        return order
+
+    @staticmethod
     def confirm_due_orders(run_date: date | None = None) -> dict[str, int]:
         run_date = run_date or date.today()
         orders = ManualFundOrder.query.filter(

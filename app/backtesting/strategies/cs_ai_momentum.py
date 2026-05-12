@@ -62,11 +62,8 @@ def add_cs_ai_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """
     data = df.copy()
     close = pd.Series(data["Close"], index=data.index)
-    high = pd.Series(data["High"], index=data.index)
-    low = pd.Series(data["Low"], index=data.index)
-
-    data["HH10"] = highest(high, 10)
-    data["LL10"] = lowest(low, 10)
+    data["HH10"] = highest(close, 10)
+    data["LL10"] = lowest(close, 10)
     data["SMA20"] = sma(close, 20)
     data["ROC10"] = roc(close, 10)
 

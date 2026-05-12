@@ -12,9 +12,7 @@ export function ManualFundOrdersPage() {
     [status]
   );
   const mutation = useMutationStatus();
-  const visibleOrders =
-    orders.data?.filter((order) => order.status === "pending" && !order.linked_trade_id) ||
-    [];
+  const visibleOrders = orders.data || [];
 
   return (
     <div className="page">
@@ -35,6 +33,7 @@ export function ManualFundOrdersPage() {
             <option value="">全部</option>
             <option value="pending">待确认</option>
             <option value="confirmed">已确认</option>
+            <option value="cancelled">已撤回</option>
             <option value="failed">失败</option>
           </select>
         </label>
@@ -74,19 +73,53 @@ export function ManualFundOrdersPage() {
                     <span className={`status-pill ${order.status}`}>{order.status}</span>
                   </td>
                   <td>
-                    <button
-                      className="ghost-button small"
-                      disabled={mutation.busy || order.status !== "pending"}
-                      type="button"
-                      onClick={() =>
-                        mutation.run(async () => {
-                          await api.confirmManualFundOrder(order.id);
-                          await orders.reload();
-                        }, "确认完成")
-                      }
-                    >
-                      确认
-                    </button>
+                    {order.status === "pending" && (
+                    <>
+                      <button
+                        className="ghost-button small"
+                        disabled={mutation.busy}
+                        type="button"
+                        onClick={() =>
+                          mutation.run(async () => {
+                            await api.confirmManualFundOrder(order.id);
+                            await orders.reload();
+                          }, "确认完成")
+                        }
+                      >
+                        确认
+                      </button>
+                      <button
+                        className="ghost-button small danger"
+                        disabled={mutation.busy}
+                        type="button"
+                        onClick={() => {
+                          if (!confirm("确认撤回该确认单？")) return;
+                          mutation.run(async () => {
+                            await api.revokeManualFundOrder(order.id);
+                            await orders.reload();
+                          }, "已撤回");
+                        }}
+                      >
+                        撤回
+                      </button>
+                    </>
+                    )}
+                    {order.status === "confirmed" && (
+                      <button
+                        className="ghost-button small danger"
+                        disabled={mutation.busy}
+                        type="button"
+                        onClick={() => {
+                          if (!confirm("确认撤回该确认单？关联交易将被删除，持仓将同步回退。")) return;
+                          mutation.run(async () => {
+                            await api.revokeManualFundOrder(order.id);
+                            await orders.reload();
+                          }, "已撤回");
+                        }}
+                      >
+                        撤回
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

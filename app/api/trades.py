@@ -62,3 +62,15 @@ def get_trade(trade_id: int):
     if trade is None:
         return error("not_found", "Trade not found", 404)
     return success(serialize_trade(trade))
+
+
+@bp.delete("/trades/<int:trade_id>")
+def revoke_trade(trade_id: int):
+    try:
+        result = TradeService.revoke(trade_id)
+    except LookupError as exc:
+        return error("not_found", str(exc), 404)
+    except ValueError as exc:
+        return error("validation_error", str(exc), 400)
+
+    return success(result)
